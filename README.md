@@ -16,6 +16,13 @@ pnpm install
 pnpm dev            # server on :3738 + web on :5738, open http://localhost:5738
 ```
 
+To run it without the dev tooling, build the UI once and let the server serve it:
+
+```sh
+pnpm build
+pnpm start          # open http://localhost:3738
+```
+
 Verify a connected MK2 end to end (every control set over RPC and read back from the device):
 
 ```sh

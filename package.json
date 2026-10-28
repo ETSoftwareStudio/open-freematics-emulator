@@ -6,7 +6,7 @@
     "dev": "node scripts/dev-runner.ts",
     "dev:server": "vp run --filter @fme/server dev",
     "dev:web": "vp run --filter @fme/web dev",
-    "build": "vp run --filter @fme/web build && vp run --filter @fme/server build",
+    "build": "vp run --filter @fme/web build",
     "start": "vp run --filter @fme/server start",
     "typecheck": "vp run -r typecheck",
     "test": "vp run -r test",
