@@ -1,6 +1,6 @@
 import type { PidReading } from "@fme/contracts";
 import { formatHexBytes } from "@fme/shared/atCommands";
-import type { PidDefinition } from "@fme/shared/pids";
+import { type PidDefinition, clampPidValue } from "@fme/shared/pids";
 import { TriangleAlertIcon } from "lucide-react";
 import type * as React from "react";
 import { useRef, useState } from "react";
@@ -67,11 +67,13 @@ const selectOnMount = (input: HTMLInputElement | null) => input?.select();
 function ReadoutEditor({
   definition,
   value,
+  step,
   onSubmit,
   onDone,
 }: {
   definition: PidDefinition;
   value: number;
+  step: number;
   onSubmit: (value: number) => void;
   /** Leaves edit mode; `refocus` hands focus back to the dial after Enter or Escape. */
   onDone: (refocus: boolean) => void;
@@ -87,7 +89,11 @@ function ReadoutEditor({
       value={text}
       onChange={(event) => setText(event.target.value)}
       onKeyDown={(event) => {
-        if (event.key === "Escape") {
+        if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+          event.preventDefault();
+          const delta = (event.key === "ArrowUp" ? step : -step) * (event.shiftKey ? 10 : 1);
+          setText(String(clampPidValue(definition, (parseTyped(text) ?? value) + delta)));
+        } else if (event.key === "Escape") {
           event.preventDefault();
           onDone(true);
         } else if (event.key === "Enter") {
@@ -99,7 +105,8 @@ function ReadoutEditor({
         }
       }}
       onBlur={() => onDone(false)}
-      className="absolute inset-x-1/5 top-[72.5cqw] h-[15cqw] rounded-md bg-gauge-bezel text-center font-semibold text-[13cqw] text-gauge-ink tabular-nums leading-none outline-none ring-2 ring-gauge-set aria-invalid:ring-gauge-critical"
+      style={{ width: `${Math.max(text.length, 3) + 1}ch` }}
+      className="absolute left-1/2 top-[72.5cqw] h-[15cqw] -translate-x-1/2 rounded-md bg-gauge-bezel text-center font-semibold text-[13cqw] text-gauge-ink tabular-nums leading-none outline-none ring-2 ring-gauge-set aria-invalid:ring-gauge-critical"
     />
   );
 }
@@ -119,6 +126,8 @@ export function Gauge({
   const { shown, dragging, change, commit } = usePidControl(definition, value);
   const svgRef = useRef<SVGSVGElement>(null);
   const sliderRef = useRef<HTMLDivElement>(null);
+  // A click only focuses the dial (for arrow keys); the needle follows the pointer once it drags.
+  const dragStart = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const [editing, setEditing] = useState(false);
   const large = size === "lg";
 
@@ -191,14 +200,24 @@ export function Gauge({
             className="block w-full"
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture(event.pointerId);
-              change(valueAtPointer(event));
+              dragStart.current = { x: event.clientX, y: event.clientY, moved: false };
             }}
             onPointerMove={(event) => {
-              if (event.currentTarget.hasPointerCapture(event.pointerId))
-                change(valueAtPointer(event));
+              const start = dragStart.current;
+              if (start === null || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+              if (!start.moved && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 4)
+                return;
+              start.moved = true;
+              change(valueAtPointer(event));
             }}
-            onPointerUp={(event) => void commit(valueAtPointer(event))}
-            onPointerCancel={() => void commit(shown)}
+            onPointerUp={(event) => {
+              if (dragStart.current?.moved) void commit(valueAtPointer(event));
+              dragStart.current = null;
+            }}
+            onPointerCancel={() => {
+              if (dragStart.current?.moved) void commit(shown);
+              dragStart.current = null;
+            }}
           >
             <circle cx={CENTER} cy={CENTER} r={98} className="fill-gauge-bezel" />
             <circle cx={CENTER} cy={CENTER} r={94} className="fill-gauge-face" />
@@ -353,6 +372,7 @@ export function Gauge({
           <ReadoutEditor
             definition={definition}
             value={shown}
+            step={step}
             onSubmit={(typed) => void commit(typed)}
             onDone={(refocus) => {
               setEditing(false);
@@ -365,7 +385,7 @@ export function Gauge({
             title="Type a value"
             aria-label={`${definition.name}: ${formatted} ${definition.unit}. Type a value`}
             onClick={() => setEditing(true)}
-            className="absolute inset-x-1/4 top-[72.5cqw] h-[15cqw] cursor-text rounded-md font-semibold text-[13cqw] text-gauge-ink tabular-nums leading-none outline-none transition-colors hover:bg-gauge-ink/10 focus-visible:ring-2 focus-visible:ring-gauge-set"
+            className="absolute left-1/2 top-[72.5cqw] h-[15cqw] -translate-x-1/2 cursor-text rounded-md px-[0.25em] font-semibold text-[13cqw] text-gauge-ink tabular-nums leading-none outline-none transition-colors hover:bg-gauge-ink/10 focus-visible:ring-2 focus-visible:ring-gauge-set"
           >
             {formatted}
           </button>

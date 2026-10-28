@@ -147,7 +147,9 @@ export function ClusterPanel({ className }: { className?: string }) {
     <Panel.Root className={cn("border-gauge-bezel bg-gauge-face text-gauge-ink", className)}>
       <Panel.Header className="flex-wrap border-gauge-bezel">
         <Panel.Title>Instrument cluster</Panel.Title>
-        <p className="text-gauge-ink-muted text-xs">Drag a needle or use the arrow keys.</p>
+        <p className="text-gauge-ink-muted text-xs">
+          Drag a needle, use the arrow keys, or click a number to type it.
+        </p>
         {readingBack ? (
           <Panel.Actions className="text-gauge-ink-muted text-xs">
             <span className="flex items-center gap-1.5">
