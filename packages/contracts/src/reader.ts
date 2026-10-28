@@ -1,0 +1,95 @@
+import * as Schema from "effect/Schema";
+import { PidId } from "./baseSchemas.ts";
+
+/** Where the OBD-II adapter (ELM327-compatible) plugged into the emulator is reachable. */
+export const ReaderTarget = Schema.Union([
+  /** Bluetooth SPP or USB adapters show up as serial ports. */
+  Schema.TaggedStruct("serial", { path: Schema.NonEmptyString }),
+  /** Wi-Fi adapters, usually 192.168.0.10:35000. */
+  Schema.TaggedStruct("tcp", {
+    host: Schema.NonEmptyString,
+    port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 })),
+  }),
+  /** A simulated adapter reading the simulated emulator. */
+  Schema.TaggedStruct("simulated", {}),
+]);
+export type ReaderTarget = typeof ReaderTarget.Type;
+
+export const ReaderConnection = Schema.Union([
+  Schema.TaggedStruct("disconnected", {}),
+  Schema.TaggedStruct("connecting", { target: ReaderTarget }),
+  Schema.TaggedStruct("connected", {
+    target: ReaderTarget,
+    adapter: Schema.String,
+    /** ATDPN, e.g. `A6`; null until the vehicle side answers. */
+    protocol: Schema.NullOr(Schema.String),
+  }),
+  Schema.TaggedStruct("failed", { target: ReaderTarget, reason: Schema.String }),
+]);
+export type ReaderConnection = typeof ReaderConnection.Type;
+
+export const PidReading = Schema.Struct({
+  value: Schema.Number,
+  raw: Schema.Array(Schema.Number),
+  at: Schema.Number,
+});
+export type PidReading = typeof PidReading.Type;
+
+export const ReaderState = Schema.Struct({
+  connection: ReaderConnection,
+  /** PIDs polled continuously while connected. */
+  watching: Schema.Array(PidId),
+  readings: Schema.Record(PidId, PidReading),
+  /** Whether the last poll got an answer from the vehicle side. */
+  vehicleResponding: Schema.Boolean,
+  dtcs: Schema.NullOr(Schema.Array(Schema.String)),
+  vin: Schema.NullOr(Schema.String),
+});
+export type ReaderState = typeof ReaderState.Type;
+
+export class ReaderNotConnectedError extends Schema.TaggedError<ReaderNotConnectedError>()(
+  "ReaderNotConnectedError",
+  {},
+) {
+  override get message(): string {
+    return "The OBD-II adapter is not connected.";
+  }
+}
+
+export class ReaderCommandError extends Schema.TaggedError<ReaderCommandError>()(
+  "ReaderCommandError",
+  {
+    command: Schema.String,
+    reason: Schema.Literals(["no-answer", "timeout", "link"]),
+  },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "no-answer":
+        return `The vehicle did not answer ${this.command}. Is the ignition on?`;
+      case "timeout":
+        return `The OBD-II adapter did not answer ${this.command} in time.`;
+      case "link":
+        return `The connection to the OBD-II adapter failed while sending ${this.command}.`;
+    }
+  }
+}
+
+export class ReaderConnectError extends Schema.TaggedError<ReaderConnectError>()(
+  "ReaderConnectError",
+  {
+    target: ReaderTarget,
+    reason: Schema.Literals(["open-failed", "no-adapter"]),
+  },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "open-failed":
+        return "Could not reach the OBD-II adapter.";
+      case "no-adapter":
+        return "The device did not answer like an ELM327 OBD-II adapter.";
+    }
+  }
+}
+
+export const ReaderOperationError = Schema.Union([ReaderNotConnectedError, ReaderCommandError]);

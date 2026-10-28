@@ -1,0 +1,8 @@
+node_modules
+dist
+*.tsbuildinfo
+.vite-plus
+.DS_Store
+.env
+.fme
+.repos

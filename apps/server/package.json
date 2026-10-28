@@ -1,0 +1,27 @@
+{
+  "name": "@fme/server",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "fme": "./src/bin.ts"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --watch-path=src --watch-path=../../packages/contracts/src --watch-path=../../packages/shared/src src/bin.ts --dev",
+    "start": "node src/bin.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@effect/platform-node": "catalog:",
+    "@fme/contracts": "workspace:*",
+    "@fme/shared": "workspace:*",
+    "effect": "catalog:",
+    "serialport": "13.0.0"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

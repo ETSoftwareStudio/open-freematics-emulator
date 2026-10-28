@@ -1,0 +1,25 @@
+{
+  "name": "@fme/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./atCommands": "./src/atCommands.ts",
+    "./lineFramer": "./src/lineFramer.ts",
+    "./pids": "./src/pids.ts",
+    "./readiness": "./src/readiness.ts",
+    "./defaultState": "./src/defaultState.ts",
+    "./elm327": "./src/elm327.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@fme/contracts": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "vite-plus": "catalog:"
+  }
+}

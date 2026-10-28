@@ -1,0 +1,35 @@
+{
+  "name": "@fme/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vp test run --passWithNoTests"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "@effect/atom-react": "catalog:",
+    "@fme/contracts": "workspace:*",
+    "@fme/shared": "workspace:*",
+    "class-variance-authority": "^0.7.1",
+    "effect": "catalog:",
+    "lucide-react": "^0.564.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "^6.1.2",
+    "oxc-transform-react": "~0.152.0",
+    "tailwindcss": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

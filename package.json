@@ -1,0 +1,30 @@
+{
+  "name": "@fme/monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-runner.ts",
+    "dev:server": "vp run --filter @fme/server dev",
+    "dev:web": "vp run --filter @fme/web dev",
+    "build": "vp run --filter @fme/web build && vp run --filter @fme/server build",
+    "start": "vp run --filter @fme/server start",
+    "typecheck": "vp run -r typecheck",
+    "test": "vp run -r test",
+    "lint": "vp lint",
+    "fmt": "vp fmt",
+    "fmt:check": "vp fmt --check",
+    "sync:repos": "sh scripts/sync-reference-repos.sh",
+    "check": "vp fmt --check && vp lint && vp run -r typecheck && vp run -r test",
+    "hardware:check": "node apps/server/scripts/hardware-check.ts"
+  },
+  "devDependencies": {
+    "@effect/language-service": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.10"
+  },
+  "packageManager": "pnpm@12.15.0"
+}

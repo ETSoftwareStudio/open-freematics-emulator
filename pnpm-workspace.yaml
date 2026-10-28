@@ -1,0 +1,43 @@
+packages:
+  - apps/*
+  - packages/*
+  - oxlint-plugin-fme
+
+allowBuilds:
+  "@serialport/bindings-cpp": true
+  esbuild: true
+  "@tsc-rs/typescript": true
+
+catalog:
+  "@effect/atom-react": 4.0.5
+  "@effect/language-service": 0.87.5
+  "@effect/platform-node": 4.0.5
+  "@effect/vitest": 4.0.5
+  "@oxlint/plugins": ^1.63.0
+  "@tailwindcss/vite": 4.3.3
+  "@types/node": 24.12.4
+  "@types/react": ~19.3.0
+  "@types/react-dom": ~19.3.0
+  effect: 4.0.5
+  react: 19.3.1
+  react-dom: 19.3.1
+  tailwindcss: 4.3.3
+  typescript: npm:@tsc-rs/typescript@0.8.0
+  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
+  vite-plus: 1.4.0
+
+overrides:
+  "@effect/vitest": "catalog:"
+  # @effect/vitest is patched to use vite-plus's bundled vitest.
+  "@effect/vitest>vitest": "-"
+  effect: "catalog:"
+  vite: "catalog:"
+  vite-plus: "catalog:"
+
+packageExtensions:
+  "@effect/vitest@*":
+    dependencies:
+      vite-plus: "catalog:"
+
+patchedDependencies:
+  "@effect/vitest@4.0.5": patches/@effect__vitest@4.0.5.patch

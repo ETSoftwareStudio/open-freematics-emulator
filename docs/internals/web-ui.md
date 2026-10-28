@@ -1,0 +1,51 @@
+# Web UI
+
+## Primitives
+
+Controls come from [`components/ui`](../../apps/web/src/components/ui): Base UI primitives with
+their own look. Pick a `variant` or `size`; don't restyle one with `className`. Layout classes
+(width, flex, margin, position) belong on the parent. If no variant fits and the look is generic,
+add a variant to the primitive; a look that belongs to one feature stays in that feature.
+
+Don't style a raw `<button>`, `<input>`, or `<select>` to look like a control a primitive provides.
+Raw elements are right when the element isn't that control.
+
+## Styles
+
+Tailwind classes in the component that renders the element. Global CSS in `index.css` is only for
+theme tokens and what classes can't express. Theme-only rules use `@variant dark` and
+`@variant light`.
+
+## Composition
+
+[`Panel.tsx`](../../apps/web/src/components/emulator/Panel.tsx) exports one object of slots
+(`Root`, `Header`, `Title`, `Description`, `Actions`, `Body`). Slots own their classes and spread
+the rest of their props. New panels compose those slots instead of copying markup.
+
+## State
+
+Server state comes from atoms in [`rpc/atoms.ts`](../../apps/web/src/rpc/atoms.ts): the emulator
+state and traffic are streams the server pushes; commands are RPC mutations run through
+`useCommand`, which reports failures to the error banner. Components never hold a copy of server
+state. Local state is only for drafts the user is editing (a slider being dragged, a VIN being
+typed), cleared once the command settles.
+
+## React Compiler
+
+`react({ compiler: true })` memoizes components, so `useMemo` and `useCallback` aren't needed.
+React effects are for synchronizing with something outside React; derive in render and act in
+handlers. An effect that stays states why with
+`// oxlint-disable-next-line fme/no-unreasoned-state-sync -- <why>`.
+
+## Instrument cluster
+
+[`components/cluster`](../../apps/web/src/components/cluster) draws the dashboard: SVG gauges that
+are also controls (drag the needle, arrow keys, PageUp/PageDown, Home/End) and warning lights.
+Dial geometry lives in `gaugeGeometry.ts` and is unit-tested; a gauge's display range and zones are
+UI choices and may be narrower than what the PID can encode, so the PID list stays the place for
+exact values. PID controls share `usePidControl` for drafts and send de-duplication.
+
+The cluster is dark in both themes. Its colors are the `gauge-*` tokens in `index.css`: blue is the
+value set on the emulator, aqua the scan tool's read-back (always with its triangle shape and a
+label), amber and red are reserved for zones and lamps, and text stays in the ink tokens. The
+pairs were checked for color-vision separation on the cluster face; re-check before changing them.
