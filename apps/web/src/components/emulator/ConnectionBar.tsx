@@ -1,7 +1,14 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import type { ConnectTarget, Connection, SerialPortInfo } from "@fme/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { CableIcon, CpuIcon, PlugZapIcon, RefreshCwIcon, UnplugIcon } from "lucide-react";
+import {
+  CableIcon,
+  CpuIcon,
+  PlugZapIcon,
+  RefreshCwIcon,
+  TriangleAlertIcon,
+  UnplugIcon,
+} from "lucide-react";
 import { useState } from "react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -71,6 +78,7 @@ export function ConnectionBar() {
           "/dev/",
           "",
         );
+  const connectSelected = () => void connect({ target: toTarget(selected) });
 
   return (
     <header className="sticky top-0 z-10 border-b bg-background/85 backdrop-blur">
@@ -145,16 +153,28 @@ export function ConnectionBar() {
               Disconnect
             </Button>
           ) : (
-            <Button
-              onClick={() => void connect({ target: toTarget(selected) })}
-              disabled={!serverReachable}
-            >
+            <Button onClick={connectSelected} disabled={!serverReachable}>
               <PlugZapIcon />
               Connect
             </Button>
           )}
         </div>
       </div>
+      {serverReachable && connection?._tag === "disconnected" ? (
+        <div className="border-t bg-warning-surface" role="status">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-warning-foreground text-xs">
+            <TriangleAlertIcon className="size-4 shrink-0 text-warning" />
+            <p className="min-w-0 flex-1">
+              <span className="font-medium">Not connected to {selectedLabel}.</span> Changes you
+              make are kept here and sent to the device when you connect.
+            </p>
+            <Button size="sm" variant="outline" onClick={connectSelected}>
+              <PlugZapIcon />
+              Connect
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {connection?._tag === "failed" ? (
         <div className="border-t bg-error-surface">
           <p className="mx-auto max-w-7xl px-4 py-2 text-error-foreground text-xs">

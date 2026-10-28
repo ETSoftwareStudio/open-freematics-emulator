@@ -155,3 +155,11 @@
     stroke-width: 1.75;
   }
 }
+
+/* Menus and popovers float over the dark cluster, so they need their own opaque surface. */
+@utility dropdown-glass {
+  border: 1px solid var(--border);
+  background-color: color-mix(in srgb, var(--popover) 94%, transparent);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+}
