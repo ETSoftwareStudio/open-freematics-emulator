@@ -7,7 +7,7 @@ description: Run the Freematics emulator app and verify a change end to end, aga
 
 ## Start it
 
-Run `pnpm dev` from the repository root in the background and keep its terminal. Read the ports
+Run `vp run dev` from the repository root in the background and keep its terminal. Read the ports
 from the `[dev-runner]` line (web 5738, server 3738 by default). Vite proxies `/ws` and `/api` to
 the server, so open the web port only.
 
@@ -37,7 +37,8 @@ change and commit handlers.
 
 ## Verify the desktop app
 
-`pnpm desktop` builds and opens it. To drive it from a tool, launch Electron yourself with a
+`vp run desktop` builds and opens it; `vp run desktop:dev` opens it on the dev server with hot
+reload. To drive it from a tool, launch Electron yourself with a
 debugging port and talk to the window over the DevTools protocol (`/json/list`, then
 `Runtime.evaluate`, `Page.captureScreenshot`):
 
@@ -47,11 +48,11 @@ cd apps/desktop && env -u ELECTRON_RUN_AS_NODE ./node_modules/.bin/electron . --
 
 Shells inside Electron apps may export `ELECTRON_RUN_AS_NODE=1`, which turns Electron into plain
 Node; unset it. After closing the window, check that the server is gone and the serial port is
-free (`lsof /dev/cu.X`). For packages, `pnpm desktop:dist` then `pnpm --filter @fme/desktop smoke`.
+free (`lsof /dev/cu.X`). For packages, `vp run desktop:dist` then `vp run @fme/desktop#smoke`.
 
 ## Verify against hardware without a browser
 
-With the dev server connected to nothing, run `pnpm hardware:check` (or
+With the dev server connected to nothing, run `vp run hardware:check` (or
 `node apps/server/scripts/hardware-check.ts --port /dev/cu.X`). It drives every control over the
 WebSocket RPC, reads each value back from the device, restores the state, and exits non-zero on
 any mismatch.

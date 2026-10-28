@@ -1,5 +1,5 @@
 /**
- * Smoke-tests the unpacked app `pnpm desktop:dist` built for this OS and arch: the packaged
+ * Smoke-tests the unpacked app `vp run desktop:dist` built for this OS and arch: the packaged
  * Electron loads the native serial module, then runs the bundled server, which serves the UI.
  */
 import * as NodeChildProcess from "node:child_process";

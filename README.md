@@ -12,15 +12,15 @@ shared with a React client.
 ## Quick start
 
 ```sh
-pnpm install
-pnpm dev            # server on :3738 + web on :5738, open http://localhost:5738
+vp install
+vp run dev          # server on :3738 + web on :5738, open http://localhost:5738
 ```
 
 To run it without the dev tooling, build the UI once and let the server serve it:
 
 ```sh
-pnpm build
-pnpm start          # open http://localhost:3738
+vp run build
+vp run start        # open http://localhost:3738
 ```
 
 ## Desktop app
@@ -29,10 +29,11 @@ The desktop app (Electron) runs on macOS, Windows and Linux, x64 and arm64. It b
 and the UI; nothing else needs to be installed.
 
 ```sh
-pnpm desktop                  # build and open the app
-pnpm desktop:dist             # installers for this OS into apps/desktop/release
-pnpm desktop:dist --win       # or --mac, --linux; --dir for unpacked apps only
-pnpm --filter @fme/desktop smoke   # check the packaged app for this OS
+vp run desktop:dev            # dev server + app window, with hot reload
+vp run desktop                # build and open the app
+vp run desktop:dist           # installers for this OS into apps/desktop/release
+vp run desktop:dist --win     # or --mac, --linux; --dir for unpacked apps only
+vp run @fme/desktop#smoke     # check the packaged app for this OS
 ```
 
 | OS      | Output                                                          |
@@ -52,7 +53,7 @@ again) to open serial ports; port discovery uses `udevadm`, which desktop distro
 Verify a connected MK2 end to end (every control set over RPC and read back from the device):
 
 ```sh
-pnpm hardware:check   # with pnpm dev running
+vp run hardware:check   # with vp run dev running
 ```
 
 No hardware? Pick **Simulated device** in the connection bar. It speaks the same AT command set as
@@ -76,7 +77,7 @@ its port. Current units use a CP2102 bridge (`/dev/cu.usbserial-*` on macOS), ol
 4. **Web UI** – `apps/web`: connection bar, ignition and protocol, PID controls, DTCs, VIN,
    readiness monitors, raw AT console with traffic log. ✅
 5. **Verified end to end** – the app running against the real emulator over USB, every control
-   checked by reading the value back from the device. ✅ (`pnpm hardware:check`: 20/20 on a V1.2
+   checked by reading the value back from the device. ✅ (`vp run hardware:check`: 20/20 on a V1.2
    unit; UI driven in the browser against the same unit.)
 
 **Additional: wireless.**
@@ -84,7 +85,7 @@ its port. Current units use a CP2102 bridge (`/dev/cu.usbserial-*` on macOS), ol
 6. **Scan tool read-back** – connect an ELM327-compatible OBD-II adapter plugged into the
    emulator (Bluetooth SPP, Wi-Fi or USB) and see what a vehicle reader gets: live PID values next
    to each control, stored codes, VIN, detected protocol. ✅ with the simulated adapter and a
-   real Bluetooth ELM327 (`pnpm hardware:check --reader /dev/cu.OBDII`, 24/24). On macOS the
+   real Bluetooth ELM327 (`vp run hardware:check --reader /dev/cu.OBDII`, 24/24). On macOS the
    adapter's port only answers once the Bluetooth link is connected.
 7. **Emulator over BLE** – manage the MK2 through its built-in BLE serial link instead of USB.
 
@@ -114,10 +115,12 @@ docs/internals      Conventions for contributors and agents (start from AGENTS.m
 
 ## Scripts
 
-| Command          | What it does                                        |
-| ---------------- | --------------------------------------------------- |
-| `pnpm dev`       | Server (watch) and Vite dev server together         |
-| `pnpm build`     | Builds the web app and the server bundle            |
-| `pnpm start`     | Runs the built server, which also serves the web UI |
-| `pnpm test`      | Runs every package's tests                          |
-| `pnpm typecheck` | Type-checks every package                           |
+| Command              | What it does                                        |
+| -------------------- | --------------------------------------------------- |
+| `vp run dev`         | Server (watch) and Vite dev server together         |
+| `vp run desktop:dev` | The same, plus the desktop window on the dev server |
+| `vp run build`       | Builds the web app and the server bundle            |
+| `vp run start`       | Runs the built server, which also serves the web UI |
+| `vp run test`        | Runs every package's tests                          |
+| `vp run typecheck`   | Type-checks every package                           |
+| `vp run check`       | Format check, lint, typecheck and tests             |

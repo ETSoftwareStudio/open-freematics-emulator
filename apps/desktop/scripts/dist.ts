@@ -20,7 +20,7 @@ const manifest = JSON.parse(NodeFS.readFileSync(NodePath.join(root, "package.jso
 };
 
 if (!NodeFS.existsSync(NodePath.join(root, "dist/main.mjs"))) {
-  console.error("Missing dist/main.mjs. Run `pnpm desktop:dist` at the repo root.");
+  console.error("Missing dist/main.mjs. Run `vp run desktop:dist` at the repo root.");
   process.exit(1);
 }
 

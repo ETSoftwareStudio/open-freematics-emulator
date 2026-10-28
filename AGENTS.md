@@ -31,7 +31,7 @@ Both sides write to one `TrafficLog`.
 - `packages/shared` – pure helpers with subpath exports and no barrel.
 - `oxlint-plugin-fme` – custom lint rules that enforce the conventions below.
 - `.repos/` – read-only reference sources (Effect v4 at the installed version). Never edit or
-  import from them. Run `pnpm sync:repos` if missing or after bumping `effect`.
+  import from them. Run `vp run sync:repos` if missing or after bumping `effect`.
 
 ## Protocol facts
 
@@ -62,8 +62,9 @@ Both sides write to one `TrafficLog`.
 
 ## Verifying
 
-- `pnpm check` runs format check, lint, typecheck and tests across the workspace.
-- While iterating: `vp test run <files>` from the owning package, `pnpm lint`, `pnpm fmt`.
+- `vp run check` runs format check, lint, typecheck and tests across the workspace. Use `vp`
+  for every command (`vp run <script>`, `vp install`), not `pnpm`.
+- While iterating: `vp test run <files>` from the owning package, `vp lint`, `vp fmt`.
 - Test rules live in [Testing](docs/internals/testing.md). Effect code uses `it.effect` from
   `@effect/vitest` (TestClock); no sleeps, polling, or wall-clock deltas.
 - Backend behavior changes ship with focused tests against `SimulatedDevice`.

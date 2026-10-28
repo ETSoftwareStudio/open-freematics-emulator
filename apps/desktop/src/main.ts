@@ -106,7 +106,7 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(async () => {
     try {
-      // FME_DESKTOP_URL points the window at `pnpm dev` instead of the bundled server.
+      // FME_DESKTOP_URL points the window at the dev server instead of the bundled server.
       const url = process.env.FME_DESKTOP_URL ?? (await startServer(await freePort()));
       createWindow(url);
     } catch (error) {
