@@ -11,10 +11,12 @@ const { values } = NodeUtil.parseArgs({
     host: { type: "string", default: "127.0.0.1" },
     port: { type: "string", default: process.env.FME_SERVER_PORT ?? "3738" },
     dev: { type: "boolean", default: false },
+    // The desktop app ships the built web app next to the bundled server.
+    "web-root": { type: "string" },
   },
 });
 
-const webRoot = NodePath.resolve(import.meta.dirname, "../../web/dist");
+const webRoot = values["web-root"] ?? NodePath.resolve(import.meta.dirname, "../../web/dist");
 
 Server.makeLayer({
   host: values.host,

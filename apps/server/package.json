@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch --watch-path=src --watch-path=../../packages/contracts/src --watch-path=../../packages/shared/src src/bin.ts --dev",
+    "build": "node scripts/build.ts",
     "start": "node src/bin.ts",
     "typecheck": "tsc --noEmit",
     "test": "vp test run"
