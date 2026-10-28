@@ -31,8 +31,23 @@ the value back from the device with the console's `ATGET` quick commands or by t
 console shows every line sent and received, which is the ground truth: a UI change is verified
 only when the matching `ATSET` got `OK` and `ATGET` returns the expected bytes.
 
-Base UI sliders don't respond to automated drags. Focus the slider's range input and press
-arrow, PageUp or End keys instead; that runs the same change and commit handlers.
+Base UI sliders and the cluster gauges don't respond to automated drags. Focus the slider's range
+input or the gauge (`role=slider`) and press arrow, PageUp or End keys instead; that runs the same
+change and commit handlers.
+
+## Verify the desktop app
+
+`pnpm desktop` builds and opens it. To drive it from a tool, launch Electron yourself with a
+debugging port and talk to the window over the DevTools protocol (`/json/list`, then
+`Runtime.evaluate`, `Page.captureScreenshot`):
+
+```sh
+cd apps/desktop && env -u ELECTRON_RUN_AS_NODE ./node_modules/.bin/electron . --remote-debugging-port=9333
+```
+
+Shells inside Electron apps may export `ELECTRON_RUN_AS_NODE=1`, which turns Electron into plain
+Node; unset it. After closing the window, check that the server is gone and the serial port is
+free (`lsof /dev/cu.X`). For packages, `pnpm desktop:dist` then `pnpm --filter @fme/desktop smoke`.
 
 ## Verify against hardware without a browser
 

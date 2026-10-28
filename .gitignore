@@ -6,3 +6,5 @@ dist
 .env
 .fme
 .repos
+.stage
+release

@@ -24,6 +24,9 @@ Both sides write to one `TrafficLog`.
 - `apps/server` – Effect services. Read [Effect services](docs/internals/effect-services.md) before
   adding server code, and `.repos/effect-smol/LLMS.md` for the Effect library itself.
 - `apps/web` – React/Vite UI. Read [Web UI](docs/internals/web-ui.md) before adding UI.
+- `apps/desktop` – Electron shell. It runs the bundled server on Electron's own Node (a child
+  process on a free local port) and opens the UI in a window; no Node access in the renderer.
+  Plain Node code, not Effect. Keep it thin: features belong in the server or the UI.
 - `packages/contracts` – Effect Schema contracts only. Anything crossing the wire is typed here.
 - `packages/shared` – pure helpers with subpath exports and no barrel.
 - `oxlint-plugin-fme` – custom lint rules that enforce the conventions below.

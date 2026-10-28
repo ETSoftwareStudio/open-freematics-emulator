@@ -23,6 +23,32 @@ pnpm build
 pnpm start          # open http://localhost:3738
 ```
 
+## Desktop app
+
+The desktop app (Electron) runs on macOS, Windows and Linux, x64 and arm64. It bundles the server
+and the UI; nothing else needs to be installed.
+
+```sh
+pnpm desktop                  # build and open the app
+pnpm desktop:dist             # installers for this OS into apps/desktop/release
+pnpm desktop:dist --win       # or --mac, --linux; --dir for unpacked apps only
+pnpm --filter @fme/desktop smoke   # check the packaged app for this OS
+```
+
+| OS      | Output                                                          |
+| ------- | --------------------------------------------------------------- |
+| macOS   | `.dmg` and `.zip` (unsigned: right-click → Open the first time) |
+| Windows | NSIS installer `.exe` and a portable `.zip`                     |
+| Linux   | `.AppImage` and `.deb`                                          |
+
+Each OS builds its own installers best; the `Desktop` GitHub workflow does that on macOS, Windows
+and Linux runners, smoke-tests each package and uploads them. From an Apple Silicon Mac, Linux
+packages also build in Docker with `electronuserland/builder:wine`. The Windows installer step
+needs Wine and fails there without Rosetta; `--win` still produces the zip.
+
+On Linux, add yourself to the `dialout` group (`sudo usermod -aG dialout $USER`, then log in
+again) to open serial ports; port discovery uses `udevadm`, which desktop distros ship.
+
 Verify a connected MK2 end to end (every control set over RPC and read back from the device):
 
 ```sh
@@ -62,7 +88,7 @@ its port. Current units use a CP2102 bridge (`/dev/cu.usbserial-*` on macOS), ol
    adapter's port only answers once the Bluetooth link is connected.
 7. **Emulator over BLE** – manage the MK2 through its built-in BLE serial link instead of USB.
 
-**Later:** drive-cycle scenarios (scripted PID streams), desktop shell.
+**Later:** drive-cycle scenarios (scripted PID streams).
 
 ## Firmware notes (measured on a V1.2 unit)
 

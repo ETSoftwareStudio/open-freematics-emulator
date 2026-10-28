@@ -5,6 +5,9 @@ packages:
 
 allowBuilds:
   "@serialport/bindings-cpp": true
+  electron: true
+  # Squirrel.Windows only; the Windows build uses NSIS.
+  electron-winstaller: false
   esbuild: true
   "@tsc-rs/typescript": true
 
@@ -25,6 +28,9 @@ catalog:
   typescript: npm:@tsc-rs/typescript@0.8.0
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0
   vite-plus: 1.4.0
+
+minimumReleaseAgeExclude:
+  - electron@45.1.0
 
 overrides:
   "@effect/vitest": "catalog:"
