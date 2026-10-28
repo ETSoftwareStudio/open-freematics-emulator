@@ -10,7 +10,8 @@
     "./readiness": "./src/readiness.ts",
     "./defaultState": "./src/defaultState.ts",
     "./elm327": "./src/elm327.ts",
-    "./dtcs": "./src/dtcs.ts"
+    "./dtcs": "./src/dtcs.ts",
+    "./firmware": "./src/firmware.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

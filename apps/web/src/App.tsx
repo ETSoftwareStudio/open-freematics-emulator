@@ -3,6 +3,7 @@ import { ConnectionBar } from "./components/emulator/ConnectionBar";
 import { ConsolePanel } from "./components/emulator/ConsolePanel";
 import { DevicePanel } from "./components/emulator/DevicePanel";
 import { DtcPanel } from "./components/emulator/DtcPanel";
+import { FirmwarePanel } from "./components/emulator/FirmwarePanel";
 import { ErrorBanner } from "./components/emulator/ErrorBanner";
 import { PidPanel } from "./components/emulator/PidPanel";
 import { ReadinessPanel } from "./components/emulator/ReadinessPanel";
@@ -25,6 +26,7 @@ export function App() {
           <ScanToolPanel />
           <DtcPanel />
           <ReadinessPanel />
+          <FirmwarePanel />
         </div>
         <ConsolePanel className="lg:col-span-2" />
       </main>
