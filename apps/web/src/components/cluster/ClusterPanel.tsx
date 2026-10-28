@@ -89,17 +89,34 @@ function Lamp({
   label,
   lit,
   tone,
+  href,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   lit: boolean;
   tone?: GaugeTone;
+  /** Where the lamp's settings live; the lamp becomes a link there. */
+  href?: string;
 }) {
-  return (
-    <li className={cn("flex items-center gap-1.5", lit ? "text-gauge-ink" : "text-gauge-tick")}>
+  const content = (
+    <>
       <Icon className={cn("size-4", lit && tone !== undefined && LAMP_TONE[tone])} />
       {label}
       <span className="sr-only">{lit ? "on" : "off"}</span>
+    </>
+  );
+  return (
+    <li className={cn("flex items-center gap-1.5", lit ? "text-gauge-ink" : "text-gauge-tick")}>
+      {href === undefined ? (
+        content
+      ) : (
+        <a
+          href={href}
+          className="flex items-center gap-1.5 rounded-sm underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-gauge-set"
+        >
+          {content}
+        </a>
+      )}
     </li>
   );
 }
@@ -173,6 +190,7 @@ export function ClusterPanel({ className }: { className?: string }) {
             label="Check engine"
             lit={state.dtcs["03"].length > 0}
             tone="warning"
+            href="#trouble-codes"
           />
           <Lamp
             icon={ThermometerIcon}

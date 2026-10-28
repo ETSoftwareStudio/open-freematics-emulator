@@ -9,7 +9,8 @@
     "./pids": "./src/pids.ts",
     "./readiness": "./src/readiness.ts",
     "./defaultState": "./src/defaultState.ts",
-    "./elm327": "./src/elm327.ts"
+    "./elm327": "./src/elm327.ts",
+    "./dtcs": "./src/dtcs.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

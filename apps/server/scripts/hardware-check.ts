@@ -118,15 +118,19 @@ const program = Effect.gen(function* () {
     "ATBUS CAN_29B_500K",
     "OK",
   );
-  const rejected = yield* client(WS_METHODS.setDtcs, {
+  const pending =
+    connected.connection._tag === "connected" ? connected.connection.capabilities : null;
+  const mode07 = yield* client(WS_METHODS.setDtcs, {
     mode: "07",
     codes: ["P0300"] as Array<DtcCode>,
-  }).pipe(Effect.flip, Effect.result);
+  }).pipe(Effect.result);
+  const expectsMode07 = pending?.dtcModes.includes("07") ?? false;
   results.push({
-    check: "Mode 07 rejected on non-J1850 firmware",
-    ok: rejected._tag === "Success",
-    detail: rejected._tag === "Success" ? String(rejected.success._tag) : "accepted",
+    check: `Mode 07 ${expectsMode07 ? "accepted" : "rejected"} as the probe found`,
+    ok: (mode07._tag === "Success") === expectsMode07,
+    detail: mode07._tag === "Success" ? "accepted" : mode07.failure._tag,
   });
+  if (mode07._tag === "Success") yield* client(WS_METHODS.setDtcs, { mode: "07", codes: [] });
 
   const after: EmulatorState = yield* currentState;
   results.push({

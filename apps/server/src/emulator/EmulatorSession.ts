@@ -15,6 +15,7 @@ import {
 } from "@fme/contracts";
 import { AT } from "@fme/shared/atCommands";
 import { makeDefaultState } from "@fme/shared/defaultState";
+import { PIDS_RESET_BY_CLEAR } from "@fme/shared/dtcs";
 import { clampPidValue, findPid } from "@fme/shared/pids";
 import { encodeMonitorStatus } from "@fme/shared/readiness";
 import * as Context from "effect/Context";
@@ -34,6 +35,7 @@ import * as TrafficLog from "../traffic/TrafficLog.ts";
 import * as AtClient from "./AtClient.ts";
 
 const DTC_MODES: ReadonlyArray<DtcMode> = ["03", "07", "0A"];
+const PROBE_DTC = "P0000" as DtcCode;
 
 type OperationError = EmulatorNotConnectedError | EmulatorCommandError;
 
@@ -144,9 +146,32 @@ const make = Effect.gen(function* () {
       Effect.mapError(() => new EmulatorConnectError({ target, reason: "open-failed" })),
     );
 
+  /**
+   * Finds which DTC modes the firmware takes by setting a throwaway code in each. Runs right
+   * after ATZ, and the codes it leaves are cleared before the real state is pushed.
+   */
+  const probeDtcModes = Effect.fn("EmulatorSession.probeDtcModes")(function* (
+    client: AtClient.AtClient,
+  ) {
+    const accepted: Array<DtcMode> = ["03"];
+    for (const mode of DTC_MODES.filter((m) => m !== "03")) {
+      const ok = yield* client.command(AT.setDtcs(mode, [PROBE_DTC])).pipe(
+        Effect.as(true),
+        Effect.catchIf(
+          (error) => error.reason === "rejected",
+          () => Effect.succeed(false),
+        ),
+      );
+      if (ok) accepted.push(mode);
+    }
+    if (accepted.length > 1) yield* client.command(AT.clearDtcs);
+    return accepted;
+  });
+
   const pushState = Effect.fn("EmulatorSession.pushState")(function* (
     client: AtClient.AtClient,
     desired: EmulatorState,
+    dtcModes: ReadonlyArray<DtcMode>,
   ) {
     yield* client.command(AT.setProtocol(desired.protocol));
     yield* client.command(AT.ignition(desired.ignition));
@@ -159,13 +184,12 @@ const make = Effect.gen(function* () {
     for (const mode of DTC_MODES) {
       const codes = desired.dtcs[mode];
       if (codes.length === 0) continue;
-      // Mode 07/0A codes only exist on J1850 firmware; drop them where the device refuses.
-      yield* client.command(AT.setDtcs(mode, codes)).pipe(
-        Effect.catchIf(
-          () => mode !== "03",
-          () => Effect.sync(() => (acceptedDtcs[mode] = [])),
-        ),
-      );
+      // Codes set while offline for a mode this firmware lacks are dropped.
+      if (!dtcModes.includes(mode)) {
+        acceptedDtcs[mode] = [];
+        continue;
+      }
+      yield* client.command(AT.setDtcs(mode, codes));
     }
     for (const [pid, value] of Object.entries(desired.pids)) {
       yield* client.command(pidCommand(pid as PidId, value));
@@ -203,14 +227,22 @@ const make = Effect.gen(function* () {
         Effect.mapError(() => new EmulatorConnectError({ target, reason: "no-handshake" })),
       );
       const desired = yield* SubscriptionRef.get(state);
-      const pushed = yield* pushState(client, desired).pipe(
-        Effect.mapError(() => new EmulatorConnectError({ target, reason: "setup-failed" })),
-      );
+      const { dtcModes, pushed } = yield* Effect.gen(function* () {
+        const dtcModes = yield* probeDtcModes(client);
+        const pushed = yield* pushState(client, desired, dtcModes);
+        return { dtcModes, pushed };
+      }).pipe(Effect.mapError(() => new EmulatorConnectError({ target, reason: "setup-failed" })));
       yield* Ref.set(active, Option.some({ id, client, scope }));
       yield* update((s) => ({
         ...pushed,
         pids: { ...s.pids, ...pushed.pids },
-        connection: { _tag: "connected", target, device: parseDeviceInfo(resetLines) },
+        connection: {
+          _tag: "connected",
+          target,
+          device: parseDeviceInfo(resetLines),
+          // As the official GUI does: CALID is supported when the firmware answers ATGET CALID.
+          capabilities: { dtcModes, calibrationId: pushed.calibrationId !== null },
+        },
       }));
     });
 
@@ -270,12 +302,18 @@ const make = Effect.gen(function* () {
     );
   }, locked);
 
+  // Like a scan tool's Mode 04: codes go, and so do the MIL-on and since-cleared counters.
+  const cleared = (current: EmulatorState): EmulatorState => ({
+    ...withDtcs(current, { "03": [], "07": [], "0A": [] }),
+    pids: { ...current.pids, ...Object.fromEntries(PIDS_RESET_BY_CLEAR.map((pid) => [pid, 0])) },
+  });
   const clearDtcs = apply(
     (current) => [
       AT.clearDtcs,
-      monitorStatusCommand(withDtcs(current, { "03": [], "07": [], "0A": [] })),
+      ...PIDS_RESET_BY_CLEAR.map((pid) => pidCommand(pid, 0)),
+      monitorStatusCommand(cleared(current)),
     ],
-    (current) => withDtcs(current, { "03": [], "07": [], "0A": [] }),
+    cleared,
   ).pipe(Effect.withSpan("EmulatorSession.clearDtcs"));
 
   const setPid = Effect.fn("EmulatorSession.setPid")(function* (pid: PidId, value: number) {

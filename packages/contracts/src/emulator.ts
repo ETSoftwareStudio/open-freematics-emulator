@@ -67,10 +67,21 @@ export const DeviceInfo = Schema.Struct({
 });
 export type DeviceInfo = typeof DeviceInfo.Type;
 
+/** What the connected firmware accepts, probed on connect. V1.2 takes Mode 03 codes only. */
+export const DeviceCapabilities = Schema.Struct({
+  dtcModes: Schema.Array(DtcMode),
+  calibrationId: Schema.Boolean,
+});
+export type DeviceCapabilities = typeof DeviceCapabilities.Type;
+
 export const Connection = Schema.Union([
   Schema.TaggedStruct("disconnected", {}),
   Schema.TaggedStruct("connecting", { target: ConnectTarget }),
-  Schema.TaggedStruct("connected", { target: ConnectTarget, device: Schema.NullOr(DeviceInfo) }),
+  Schema.TaggedStruct("connected", {
+    target: ConnectTarget,
+    device: Schema.NullOr(DeviceInfo),
+    capabilities: DeviceCapabilities,
+  }),
   Schema.TaggedStruct("failed", { target: ConnectTarget, reason: Schema.String }),
 ]);
 export type Connection = typeof Connection.Type;

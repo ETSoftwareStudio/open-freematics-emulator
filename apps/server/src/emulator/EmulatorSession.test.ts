@@ -34,7 +34,10 @@ describe("EmulatorSession", () => {
         expect(state.connection).toMatchObject({
           _tag: "connected",
           device: { banner: SimulatedDevice.SIMULATED_BANNER },
+          // V1.2 rejects pending/permanent codes and CALID; the probe must leave no codes behind.
+          capabilities: { dtcModes: ["03"], calibrationId: false },
         });
+        expect(firmware.storedDtcs).toEqual([]);
         expect(state.vin).toBe("1HGCD5654VA061985");
         expect(state.calibrationId).toBeNull();
         expect(firmware.ignition).toBe(false);
@@ -75,6 +78,22 @@ describe("EmulatorSession", () => {
         const error = yield* session.setDtcs("07", ["P0300"] as Array<DtcCode>).pipe(Effect.flip);
         expect(error).toMatchObject({ _tag: "EmulatorCommandError", reason: "rejected" });
         expect((yield* stateOf).dtcs["07"]).toEqual([]);
+      }),
+    );
+
+    it.effect("clears codes and the counters a scan tool's Mode 04 resets", () =>
+      Effect.gen(function* () {
+        const session = yield* EmulatorSession.EmulatorSession;
+        const { firmware } = yield* SimulatedDevice.SimulatedDevice;
+        yield* session.setDtcs("03", ["P0420"] as Array<DtcCode>);
+        yield* session.setPid("0121" as PidId, 120);
+        yield* session.setPid("0131" as PidId, 500);
+        yield* session.clearDtcs;
+        const state = yield* stateOf;
+        expect(state.dtcs["03"]).toEqual([]);
+        expect(state.pids["0121" as PidId]).toBe(0);
+        expect(state.pids["0131" as PidId]).toBe(0);
+        expect(firmware.handle("ATGET 0131")).toBe("0131=00 00 \r");
       }),
     );
 
