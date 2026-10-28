@@ -3,7 +3,7 @@ import { formatHexBytes } from "@fme/shared/atCommands";
 import type { PidDefinition } from "@fme/shared/pids";
 import { TriangleAlertIcon } from "lucide-react";
 import type * as React from "react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 import { formatPidValue, readingMatches, usePidControl } from "../emulator/pidControl";
 import {
@@ -53,6 +53,57 @@ export interface GaugeProps {
   readonly className?: string;
 }
 
+/** Parses a typed value, tolerating digit grouping ("1,000") and stray spaces. */
+const parseTyped = (text: string) => {
+  const cleaned = text.replace(/[\s,]/g, "");
+  if (cleaned === "") return null;
+  const value = Number(cleaned);
+  return Number.isFinite(value) ? value : null;
+};
+
+// Stable, so React calls it once on mount rather than re-selecting on every keystroke.
+const selectOnMount = (input: HTMLInputElement | null) => input?.select();
+
+function ReadoutEditor({
+  definition,
+  value,
+  onSubmit,
+  onDone,
+}: {
+  definition: PidDefinition;
+  value: number;
+  onSubmit: (value: number) => void;
+  /** Leaves edit mode; `refocus` hands focus back to the dial after Enter or Escape. */
+  onDone: (refocus: boolean) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  const invalid = parseTyped(text) === null;
+  return (
+    <input
+      ref={selectOnMount}
+      inputMode="decimal"
+      aria-label={`${definition.name} (${definition.unit})`}
+      aria-invalid={invalid}
+      value={text}
+      onChange={(event) => setText(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onDone(true);
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          const typed = parseTyped(text);
+          if (typed === null) return;
+          onSubmit(typed);
+          onDone(true);
+        }
+      }}
+      onBlur={() => onDone(false)}
+      className="absolute inset-x-1/5 top-[72.5cqw] h-[15cqw] rounded-md bg-gauge-bezel text-center font-semibold text-[13cqw] text-gauge-ink tabular-nums leading-none outline-none ring-2 ring-gauge-set aria-invalid:ring-gauge-critical"
+    />
+  );
+}
+
 export function Gauge({
   definition,
   value,
@@ -67,6 +118,8 @@ export function Gauge({
 }: GaugeProps) {
   const { shown, dragging, change, commit } = usePidControl(definition, value);
   const svgRef = useRef<SVGSVGElement>(null);
+  const sliderRef = useRef<HTMLDivElement>(null);
+  const [editing, setEditing] = useState(false);
   const large = size === "lg";
 
   const snap = (next: number) =>
@@ -79,6 +132,11 @@ export function Gauge({
     return snap(angleToValue((Math.atan2(y, x) * 180) / Math.PI, range));
   };
   const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      setEditing(true);
+      return;
+    }
     const bigStep = Math.max(step, (range.max - range.min) / 10);
     const next = {
       ArrowUp: shown + step,
@@ -108,195 +166,210 @@ export function Gauge({
 
   return (
     <div className={cn("flex flex-col items-center", className)}>
-      <div
-        role="slider"
-        tabIndex={0}
-        aria-label={definition.name}
-        aria-valuemin={range.min}
-        aria-valuemax={range.max}
-        aria-valuenow={shown}
-        aria-valuetext={`${formatted} ${definition.unit}`}
-        onKeyDown={onKeyDown}
-        onKeyUp={() => {
-          if (dragging) void commit(shown);
-        }}
-        onBlur={() => {
-          if (dragging) void commit(shown);
-        }}
-        className="w-full cursor-grab touch-none select-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-gauge-set active:cursor-grabbing"
-      >
-        <svg
-          ref={svgRef}
-          viewBox="0 0 200 200"
-          className="block w-full"
-          onPointerDown={(event) => {
-            event.currentTarget.setPointerCapture(event.pointerId);
-            change(valueAtPointer(event));
+      <div className="@container relative w-full">
+        <div
+          ref={sliderRef}
+          role="slider"
+          tabIndex={0}
+          aria-label={definition.name}
+          aria-valuemin={range.min}
+          aria-valuemax={range.max}
+          aria-valuenow={shown}
+          aria-valuetext={`${formatted} ${definition.unit}`}
+          onKeyDown={onKeyDown}
+          onKeyUp={() => {
+            if (dragging) void commit(shown);
           }}
-          onPointerMove={(event) => {
-            if (event.currentTarget.hasPointerCapture(event.pointerId))
-              change(valueAtPointer(event));
+          onBlur={() => {
+            if (dragging) void commit(shown);
           }}
-          onPointerUp={(event) => void commit(valueAtPointer(event))}
-          onPointerCancel={() => void commit(shown)}
+          className="w-full cursor-grab touch-none select-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-gauge-set active:cursor-grabbing"
         >
-          <circle cx={CENTER} cy={CENTER} r={98} className="fill-gauge-bezel" />
-          <circle cx={CENTER} cy={CENTER} r={94} className="fill-gauge-face" />
+          <svg
+            ref={svgRef}
+            viewBox="0 0 200 200"
+            className="block w-full"
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId);
+              change(valueAtPointer(event));
+            }}
+            onPointerMove={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                change(valueAtPointer(event));
+            }}
+            onPointerUp={(event) => void commit(valueAtPointer(event))}
+            onPointerCancel={() => void commit(shown)}
+          >
+            <circle cx={CENTER} cy={CENTER} r={98} className="fill-gauge-bezel" />
+            <circle cx={CENTER} cy={CENTER} r={94} className="fill-gauge-face" />
 
-          {zones.map((zone) => (
-            <path
-              key={`${zone.min}-${zone.tone}`}
-              d={arcPath(
-                CENTER,
-                TRACK_RADIUS + 10,
-                valueToAngle(zone.min, range),
-                valueToAngle(zone.max, range),
-              )}
-              className={cn("fill-none", ZONE_TONE[zone.tone])}
-              strokeWidth={3}
-            />
-          ))}
+            {zones.map((zone) => (
+              <path
+                key={`${zone.min}-${zone.tone}`}
+                d={arcPath(
+                  CENTER,
+                  TRACK_RADIUS + 10,
+                  valueToAngle(zone.min, range),
+                  valueToAngle(zone.max, range),
+                )}
+                className={cn("fill-none", ZONE_TONE[zone.tone])}
+                strokeWidth={3}
+              />
+            ))}
 
-          <path
-            d={TRACK}
-            className="fill-none stroke-gauge-track"
-            strokeWidth={large ? 8 : 12}
-            strokeLinecap="round"
-          />
-          {/* The fill is the track with a dash: dash lengths animate where path data can't. */}
-          {fraction > 0 ? (
             <path
               d={TRACK}
-              pathLength={100}
-              // A gap longer than the path keeps a second round cap from showing at the far end.
-              strokeDasharray={`${fraction * 100} 200`}
-              className={cn(
-                "fill-none",
-                FILL_TONE[tone],
-                !dragging && "transition-[stroke-dasharray] duration-300 ease-out",
-              )}
+              className="fill-none stroke-gauge-track"
               strokeWidth={large ? 8 : 12}
               strokeLinecap="round"
             />
-          ) : null}
+            {/* The fill is the track with a dash: dash lengths animate where path data can't. */}
+            {fraction > 0 ? (
+              <path
+                d={TRACK}
+                pathLength={100}
+                // A gap longer than the path keeps a second round cap from showing at the far end.
+                strokeDasharray={`${fraction * 100} 200`}
+                className={cn(
+                  "fill-none",
+                  FILL_TONE[tone],
+                  !dragging && "transition-[stroke-dasharray] duration-300 ease-out",
+                )}
+                strokeWidth={large ? 8 : 12}
+                strokeLinecap="round"
+              />
+            ) : null}
 
-          {ticks.map((tick) => {
-            const angle = valueToAngle(tick, range);
-            const outer = polar(CENTER, TRACK_RADIUS - 8, angle);
-            const inner = polar(CENTER, TRACK_RADIUS - (large ? 16 : 14), angle);
-            const text = polar(CENTER, TRACK_RADIUS - 26, angle);
-            return (
-              <g key={tick}>
+            {ticks.map((tick) => {
+              const angle = valueToAngle(tick, range);
+              const outer = polar(CENTER, TRACK_RADIUS - 8, angle);
+              const inner = polar(CENTER, TRACK_RADIUS - (large ? 16 : 14), angle);
+              const text = polar(CENTER, TRACK_RADIUS - 26, angle);
+              return (
+                <g key={tick}>
+                  <line
+                    x1={inner.x}
+                    y1={inner.y}
+                    x2={outer.x}
+                    y2={outer.y}
+                    className="stroke-gauge-ink-muted"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                  />
+                  {large ? (
+                    <text
+                      x={text.x}
+                      y={text.y}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      className="fill-gauge-ink-muted font-sans"
+                      fontSize={11}
+                    >
+                      {Number((tick / tickDivisor).toFixed(2)).toLocaleString()}
+                    </text>
+                  ) : null}
+                </g>
+              );
+            })}
+            {minorTicks.map((tick) => {
+              const angle = valueToAngle(tick, range);
+              const outer = polar(CENTER, TRACK_RADIUS - 8, angle);
+              const inner = polar(CENTER, TRACK_RADIUS - 12, angle);
+              return (
                 <line
+                  key={tick}
                   x1={inner.x}
                   y1={inner.y}
                   x2={outer.x}
                   y2={outer.y}
-                  className="stroke-gauge-ink-muted"
-                  strokeWidth={2}
+                  className="stroke-gauge-tick"
+                  strokeWidth={1.5}
                   strokeLinecap="round"
                 />
-                {large ? (
-                  <text
-                    x={text.x}
-                    y={text.y}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    className="fill-gauge-ink-muted font-sans"
-                    fontSize={11}
-                  >
-                    {Number((tick / tickDivisor).toFixed(2)).toLocaleString()}
-                  </text>
-                ) : null}
-              </g>
-            );
-          })}
-          {minorTicks.map((tick) => {
-            const angle = valueToAngle(tick, range);
-            const outer = polar(CENTER, TRACK_RADIUS - 8, angle);
-            const inner = polar(CENTER, TRACK_RADIUS - 12, angle);
-            return (
-              <line
-                key={tick}
-                x1={inner.x}
-                y1={inner.y}
-                x2={outer.x}
-                y2={outer.y}
-                className="stroke-gauge-tick"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-              />
-            );
-          })}
+              );
+            })}
 
-          <text
-            x={CENTER}
-            y={128}
-            textAnchor="middle"
-            className="fill-gauge-ink-muted font-sans uppercase tracking-wider"
-            fontSize={large ? 9 : 12}
-          >
-            {label}
-          </text>
+            <text
+              x={CENTER}
+              y={128}
+              textAnchor="middle"
+              className="fill-gauge-ink-muted font-sans uppercase tracking-wider"
+              fontSize={large ? 9 : 12}
+            >
+              {label}
+            </text>
 
-          {reading === undefined ? null : (
-            <polygon
-              points={`${CENTER + TRACK_RADIUS + 5},${CENTER} ${CENTER + 97},${CENTER - 6} ${CENTER + 97},${CENTER + 6}`}
-              className="fill-gauge-readback stroke-gauge-face transition-transform duration-300 ease-out"
-              strokeWidth={2}
+            {reading === undefined ? null : (
+              <polygon
+                points={`${CENTER + TRACK_RADIUS + 5},${CENTER} ${CENTER + 97},${CENTER - 6} ${CENTER + 97},${CENTER + 6}`}
+                className="fill-gauge-readback stroke-gauge-face transition-transform duration-300 ease-out"
+                strokeWidth={2}
+                style={{
+                  transform: `rotate(${valueToAngle(reading.value, range)}deg)`,
+                  transformOrigin: `${CENTER}px ${CENTER}px`,
+                }}
+              >
+                <title>{`Scan tool read ${formatPidValue(definition, reading.value)} ${definition.unit}`}</title>
+              </polygon>
+            )}
+
+            <g
+              className={cn(!dragging && "transition-transform duration-300 ease-out")}
               style={{
-                transform: `rotate(${valueToAngle(reading.value, range)}deg)`,
+                transform: `rotate(${needleAngle}deg)`,
                 transformOrigin: `${CENTER}px ${CENTER}px`,
               }}
             >
-              <title>{`Scan tool read ${formatPidValue(definition, reading.value)} ${definition.unit}`}</title>
-            </polygon>
-          )}
-
-          <g
-            className={cn(!dragging && "transition-transform duration-300 ease-out")}
-            style={{
-              transform: `rotate(${needleAngle}deg)`,
-              transformOrigin: `${CENTER}px ${CENTER}px`,
-            }}
-          >
-            <line
-              x1={CENTER - 10}
-              y1={CENTER}
-              x2={CENTER + TRACK_RADIUS - 4}
-              y2={CENTER}
-              className="stroke-gauge-ink"
-              strokeWidth={large ? 3 : 4}
-              strokeLinecap="round"
+              <line
+                x1={CENTER - 10}
+                y1={CENTER}
+                x2={CENTER + TRACK_RADIUS - 4}
+                y2={CENTER}
+                className="stroke-gauge-ink"
+                strokeWidth={large ? 3 : 4}
+                strokeLinecap="round"
+              />
+            </g>
+            <circle
+              cx={CENTER}
+              cy={CENTER}
+              r={large ? 7 : 9}
+              className="fill-gauge-bezel stroke-gauge-ink"
+              strokeWidth={2}
             />
-          </g>
-          <circle
-            cx={CENTER}
-            cy={CENTER}
-            r={large ? 7 : 9}
-            className="fill-gauge-bezel stroke-gauge-ink"
-            strokeWidth={2}
-          />
 
-          <text
-            x={CENTER}
-            y={168}
-            textAnchor="middle"
-            className="fill-gauge-ink font-sans font-semibold tabular-nums"
-            fontSize={26}
+            <text
+              x={CENTER}
+              y={186}
+              textAnchor="middle"
+              className="fill-gauge-ink-muted font-sans"
+              fontSize={large ? 10 : 12}
+            >
+              {definition.unit}
+            </text>
+          </svg>
+        </div>
+        {editing ? (
+          <ReadoutEditor
+            definition={definition}
+            value={shown}
+            onSubmit={(typed) => void commit(typed)}
+            onDone={(refocus) => {
+              setEditing(false);
+              if (refocus) sliderRef.current?.focus();
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            title="Type a value"
+            aria-label={`${definition.name}: ${formatted} ${definition.unit}. Type a value`}
+            onClick={() => setEditing(true)}
+            className="absolute inset-x-1/4 top-[72.5cqw] h-[15cqw] cursor-text rounded-md font-semibold text-[13cqw] text-gauge-ink tabular-nums leading-none outline-none transition-colors hover:bg-gauge-ink/10 focus-visible:ring-2 focus-visible:ring-gauge-set"
           >
             {formatted}
-          </text>
-          <text
-            x={CENTER}
-            y={186}
-            textAnchor="middle"
-            className="fill-gauge-ink-muted font-sans"
-            fontSize={large ? 10 : 12}
-          >
-            {definition.unit}
-          </text>
-        </svg>
+          </button>
+        )}
       </div>
       {reading === undefined ? null : (
         <p
