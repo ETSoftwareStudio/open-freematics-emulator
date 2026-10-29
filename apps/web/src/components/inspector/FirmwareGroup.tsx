@@ -8,22 +8,31 @@ export function FirmwareGroup() {
   const firmware = useFirmware();
   const { info } = firmware;
   const version = info.version !== null ? `V${info.version}` : null;
+  const latest = `V${LATEST_OFFICIAL_FIRMWARE.version}`;
   const status = firmware.simulated
     ? { text: "Simulated", className: "text-muted-foreground" }
-    : firmware.updatable
-      ? {
-          text: `V${LATEST_OFFICIAL_FIRMWARE.version} available`,
-          className: "text-warning-foreground",
-        }
-      : version !== null
-        ? { text: "Up to date", className: "text-success-foreground" }
-        : { text: "Unknown", className: "text-muted-foreground" };
+    : {
+        available: { text: `${latest} available`, className: "text-warning-foreground" },
+        current: { text: "Up to date", className: "text-success-foreground" },
+        "too-old": {
+          text: `${latest} not advised`,
+          className: "text-muted-foreground",
+          title: "Freematics advises against updating units made before 2018.",
+        },
+        "unknown-age": {
+          text: `${latest} exists`,
+          className: "text-muted-foreground",
+          title:
+            "Not suggested: this unit's age can't be read, and Freematics advises against updating units made before 2018.",
+        },
+        unknown: { text: "Unknown", className: "text-muted-foreground" },
+      }[firmware.update];
 
   return (
     <InspectorGroup
       id="firmware"
       title="Firmware"
-      keywords="version status update built serial"
+      keywords="version status update built made serial"
       defaultOpen={false}
       summary={firmware.connected ? (version ?? undefined) : undefined}
     >
@@ -31,11 +40,14 @@ export function FirmwareGroup() {
         <>
           <PropertyRow label="Version">{version ?? firmware.banner ?? "Unknown"}</PropertyRow>
           <PropertyRow label="Status">
-            <span className={status.className}>{status.text}</span>
+            <span className={status.className} title={"title" in status ? status.title : undefined}>
+              {status.text}
+            </span>
           </PropertyRow>
           {info.buildLabel !== null ? (
             <PropertyRow label="Built">{info.buildLabel}</PropertyRow>
           ) : null}
+          {firmware.made !== null ? <PropertyRow label="Made">{firmware.made}</PropertyRow> : null}
           {info.serial !== null ? (
             <PropertyRow label="Serial">
               <code className="font-mono">{info.serial}</code>

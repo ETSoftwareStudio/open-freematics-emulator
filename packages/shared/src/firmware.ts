@@ -77,14 +77,53 @@ export const parseFirmwareInfo = (banner: string | null, details: string | null)
   };
 };
 
+/** Freematics' changelog for GUI 1.2: "Do not update for devices before 2018". */
+export const OLDEST_UPDATABLE_BUILD = "201801";
+
 /**
- * Whether the official firmware is newer than what the device reports. Prefers the banner
- * version, then the build date; unsure means no (never nag on an unreadable identity).
+ * When the unit was made, from its serial (`GH201910BN05928` → `201910`). The serial's date
+ * matches the build date on the one unit we have; firmware alone can't date the hardware.
  */
-export const firmwareUpdateAvailable = (info: FirmwareInfo): boolean => {
+export const manufactureCode = (info: FirmwareInfo): string | null => {
+  const code = info.serial?.match(/^[A-Z]{2}(\d{6})/)?.[1] ?? null;
+  return code !== null && labelForBuildCode(code) !== null ? code : null;
+};
+
+export const manufactureLabel = (info: FirmwareInfo): string | null => {
+  const code = manufactureCode(info);
+  return code === null ? null : labelForBuildCode(code);
+};
+
+/** Whether the official firmware is newer than what the device reports. */
+const officialIsNewer = (info: FirmwareInfo): boolean | null => {
   const current = versionRank(info.version);
   const latest = versionRank(LATEST_OFFICIAL_FIRMWARE.version);
   if (current !== null && latest !== null && current !== latest) return current < latest;
   if (info.buildCode !== null) return info.buildCode < LATEST_OFFICIAL_FIRMWARE.buildCode;
-  return false;
+  return null;
 };
+
+export type FirmwareUpdateStatus =
+  /** A newer official image exists and this unit is new enough for it. */
+  | "available"
+  | "current"
+  /** A newer image exists, but Freematics advises against it for units made before 2018. */
+  | "too-old"
+  /** A newer image exists, but the unit's age can't be read, so it isn't suggested. */
+  | "unknown-age"
+  | "unknown";
+
+/** Unsure means no suggestion: a wrong flash on old hardware is the one costly mistake. */
+export const firmwareUpdateStatus = (info: FirmwareInfo): FirmwareUpdateStatus => {
+  const newer = officialIsNewer(info);
+  if (newer === null) return "unknown";
+  if (!newer) return "current";
+  const made = manufactureCode(info);
+  if (made !== null) return made < OLDEST_UPDATABLE_BUILD ? "too-old" : "available";
+  // Firmware built before 2018 can only be on hardware from before 2018.
+  if (info.buildCode !== null && info.buildCode < OLDEST_UPDATABLE_BUILD) return "too-old";
+  return "unknown-age";
+};
+
+export const firmwareUpdateAvailable = (info: FirmwareInfo): boolean =>
+  firmwareUpdateStatus(info) === "available";

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   LATEST_OFFICIAL_FIRMWARE,
   firmwareUpdateAvailable,
+  firmwareUpdateStatus,
+  manufactureLabel,
   parseFirmwareInfo,
 } from "./firmware.ts";
 
@@ -30,7 +32,29 @@ describe("firmware", () => {
   });
 
   it("flags an update when the device is behind the latest release", () => {
-    expect(firmwareUpdateAvailable(parseFirmwareInfo("…V1.2", "x,y,201910,z"))).toBe(true);
+    expect(firmwareUpdateAvailable(parseFirmwareInfo("…V1.2", "x,y,201910,GH201910BN05928"))).toBe(
+      true,
+    );
+  });
+
+  it("dates the unit from its serial", () => {
+    expect(manufactureLabel(parseFirmwareInfo("…V1.2", "x,y,201910,GH201910BN05928"))).toBe(
+      "October 2019",
+    );
+    expect(manufactureLabel(parseFirmwareInfo("…V1.2", "x,y,201910,12345"))).toBeNull();
+  });
+
+  it("doesn't suggest the update for units made before 2018", () => {
+    expect(firmwareUpdateStatus(parseFirmwareInfo("…V1.2", "x,y,201910,GH201706AA00001"))).toBe(
+      "too-old",
+    );
+    expect(firmwareUpdateStatus(parseFirmwareInfo("…V1.1", "x,y,201705,"))).toBe("too-old");
+  });
+
+  it("doesn't suggest the update when the unit's age can't be read", () => {
+    const info = parseFirmwareInfo("…V1.2", "x,y,201910,");
+    expect(firmwareUpdateStatus(info)).toBe("unknown-age");
+    expect(firmwareUpdateAvailable(info)).toBe(false);
   });
 
   it("reports no update once the device is on the latest version", () => {
@@ -40,7 +64,9 @@ describe("firmware", () => {
 
   it("uses the build date when the version is the same", () => {
     const current = `…V${LATEST_OFFICIAL_FIRMWARE.version}`;
-    expect(firmwareUpdateAvailable(parseFirmwareInfo(current, "x,y,202403,z"))).toBe(true);
+    expect(firmwareUpdateAvailable(parseFirmwareInfo(current, "x,y,202403,GH202403AA00001"))).toBe(
+      true,
+    );
   });
 
   it("stays quiet when the identity can't be read", () => {

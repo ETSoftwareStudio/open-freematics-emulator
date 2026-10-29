@@ -1,6 +1,7 @@
 import {
   LATEST_OFFICIAL_FIRMWARE,
-  firmwareUpdateAvailable,
+  firmwareUpdateStatus,
+  manufactureLabel,
   parseFirmwareInfo,
 } from "@fme/shared/firmware";
 import { SquareArrowOutUpRightIcon } from "lucide-react";
@@ -23,16 +24,20 @@ export function useFirmware() {
   const device = connected ? connection.device : null;
   const simulated = connected && connection.target._tag === "simulated";
   const info = parseFirmwareInfo(device?.banner ?? null, device?.details ?? null);
+  const update = connected && !simulated ? firmwareUpdateStatus(info) : "unknown";
   return {
     connected,
     simulated,
     banner: device?.banner ?? null,
     info,
-    updatable: connected && !simulated && firmwareUpdateAvailable(info),
+    made: manufactureLabel(info),
+    update,
+    updatable: update === "available",
   };
 }
 
 export function UpdateInstructions() {
+  const { made } = useFirmware();
   return (
     <Popover>
       <PopoverTrigger
@@ -49,6 +54,10 @@ export function UpdateInstructions() {
         <p className="mt-1 text-muted-foreground text-xs">
           Flashing is done by Freematics' own updater — this app never writes to the device, so
           there's no risk of a bad flash from here.
+        </p>
+        <p className="mt-2 text-xs">
+          Freematics advises against updating units made before 2018.
+          {made !== null ? ` This one was made in ${made}.` : ""}
         </p>
         <ol className="mt-3 flex list-decimal flex-col gap-1.5 ps-4 text-xs">
           {STEPS.map((step) => (
