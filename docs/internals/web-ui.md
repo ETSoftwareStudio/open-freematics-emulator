@@ -60,3 +60,21 @@ window) makes everything inside it dark. Shell surfaces are `window`, `toolbar`,
 `pane-sunken` and `separator`; `signal` is the one accent, for needles, the active state and primary
 actions. Use `text-signal` for icons and short emphasis, never body text. Focus uses `ring`, a
 neutral, not the signal.
+
+## Window shell
+
+The app is a desktop window: `html` and `body` never scroll, panes scroll on their own.
+[`components/shell`](../../apps/web/src/components/shell) holds the window's primitives at desktop
+density (11–13px text, 26–28px controls): `Toolbar`, `Infobar`, `StatusBar`, `Pane` and its
+header, `Drawer`, `Inspector` with `InspectorGroup`, `PropertyRow` and `SegmentedControl`. Build
+screens from them rather than from `Panel`, which is for cards. A `Panel` inside an inspector
+group sits in `Panel.Embedded`, which drops its frame and title.
+
+In the desktop app the toolbar is the title bar: it carries the `drag-region` utility, and
+`useWindowChrome()` says where the platform's window buttons sit. The renderer is sandboxed, so
+the user agent is the only signal; the preload exposes nothing but `window.fme.appearance`.
+
+`useAppearance()` is System, Light or Dark. The browser keeps it in localStorage; the desktop app
+keeps it in the main process (the page's origin changes each launch) and sets
+`nativeTheme.themeSource`, so the page only ever follows `prefers-color-scheme`. The inline script
+in `index.html` applies it before first paint. The instrument cluster stays dark in both.

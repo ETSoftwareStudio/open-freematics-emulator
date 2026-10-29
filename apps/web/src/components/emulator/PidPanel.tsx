@@ -46,7 +46,7 @@ function PidRow({
   const { shown, dragging, change, commit } = usePidControl(definition, value);
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] items-center gap-x-4 gap-y-1.5 py-2.5 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_7.5rem_5.5rem]">
+    <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] items-center gap-x-4 gap-y-1.5 py-2.5 @xl:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_7.5rem_5.5rem]">
       <div className="min-w-0">
         <p className="truncate text-sm">{definition.name}</p>
         <div className="flex flex-wrap items-center gap-x-3">
@@ -59,7 +59,7 @@ function PidRow({
         </div>
       </div>
       <Slider
-        className="order-last col-span-2 sm:order-none sm:col-span-1"
+        className="order-last col-span-2 @xl:order-none @xl:col-span-1"
         aria-label={definition.name}
         min={definition.min}
         max={definition.max}
@@ -85,7 +85,7 @@ function PidRow({
           />
         </NumberFieldGroup>
       </NumberField>
-      <span className="hidden text-muted-foreground text-xs sm:inline">{definition.unit}</span>
+      <span className="hidden text-muted-foreground text-xs @xl:inline">{definition.unit}</span>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { ObdProtocol, Vin } from "@fme/contracts";
+import type { Vin } from "@fme/contracts";
 import { KeyRoundIcon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "~/components/ui/button";
@@ -12,22 +12,10 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { Switch } from "~/components/ui/switch";
+import { PROTOCOLS } from "~/lib/protocols";
 import { setIgnitionAtom, setProtocolAtom, setVinAtom, setVinEnabledAtom } from "~/rpc/atoms";
 import { useCommand, useEmulatorState } from "~/rpc/hooks";
 import { Panel } from "./Panel";
-
-const PROTOCOLS: ReadonlyArray<{ value: ObdProtocol; label: string }> = [
-  { value: "CAN_11B_500K", label: "CAN 11-bit 500 kbps" },
-  { value: "CAN_11B_250K", label: "CAN 11-bit 250 kbps" },
-  { value: "CAN_29B_500K", label: "CAN 29-bit 500 kbps" },
-  { value: "CAN_29B_250K", label: "CAN 29-bit 250 kbps" },
-  { value: "ISO9141_2", label: "ISO 9141-2" },
-  { value: "KWP2000_FAST", label: "KWP2000 fast" },
-  { value: "KWP2000_5BPS", label: "KWP2000 5 baud" },
-  { value: "J1850_PWM", label: "J1850 PWM" },
-  { value: "J1850_VPW", label: "J1850 VPW" },
-  { value: "J1939", label: "J1939" },
-];
 
 const VIN_PATTERN = /^[A-HJ-NPR-Z0-9]{17}$/;
 
@@ -59,7 +47,7 @@ export function DevicePanel() {
             : "Not connected. Changes are applied when you connect."}
         </Panel.Description>
       </Panel.Header>
-      <Panel.Body className="grid gap-4 sm:grid-cols-[auto_1fr_1.4fr]">
+      <Panel.Body className="grid gap-4 @xl:grid-cols-[auto_1fr_1.4fr]">
         <div className="flex flex-col gap-2">
           <Label htmlFor="ignition">Ignition</Label>
           <div className="flex h-8 items-center gap-2">

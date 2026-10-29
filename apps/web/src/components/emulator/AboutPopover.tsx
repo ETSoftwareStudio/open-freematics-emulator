@@ -5,20 +5,13 @@ import { version } from "../../../package.json";
 export function AboutPopover() {
   return (
     <Popover>
-      <h1>
-        <PopoverTrigger
-          title="About this app"
-          className="-m-1 flex items-center gap-2.5 rounded-md p-1 text-start outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <img src="/favicon.svg" alt="" className="size-7" />
-          <span className="flex flex-col leading-tight">
-            <span className="font-semibold text-sm">Freematics Emulator</span>
-            <span className="font-normal text-muted-foreground text-xs">
-              Unofficial MK2 control app
-            </span>
-          </span>
-        </PopoverTrigger>
-      </h1>
+      <PopoverTrigger
+        title="About Freematics Emulator"
+        aria-label="About Freematics Emulator"
+        className="flex size-7 shrink-0 cursor-default items-center justify-center rounded-md outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-accent"
+      >
+        <img src="/favicon.svg" alt="" className="size-5" />
+      </PopoverTrigger>
       <PopoverPopup align="start" className="w-72" width="auto">
         <div className="flex flex-col items-center pt-1 text-center">
           <img src="/favicon.svg" alt="" className="size-16" />

@@ -6,9 +6,18 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>Freematics Emulator</title>
     <script>
-      if (matchMedia("(prefers-color-scheme: dark)").matches) {
-        document.documentElement.classList.add("dark");
-      }
+      // Applies the appearance before first paint; src/lib/appearance.ts keeps it current.
+      (function () {
+        var mode = "system";
+        try {
+          if (!window.fme) mode = localStorage.getItem("fme:appearance") || "system";
+        } catch (error) {}
+        var dark =
+          mode === "dark" ||
+          (mode !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      })();
     </script>
   </head>
   <body>
