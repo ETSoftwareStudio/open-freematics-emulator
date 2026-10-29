@@ -22,9 +22,7 @@ function FirmwareInfobar() {
       onDismiss={() => setDismissed(latest)}
     >
       <b>Firmware V{latest} is available.</b> This MK2 runs V{info.version}
-      {info.buildLabel !== null ? ` (${info.buildLabel})` : ""}. Freematics publishes no release
-      notes; the V{latest} image has commands for pending and permanent codes and the calibration
-      ID, which V{info.version} rejects.
+      {info.buildLabel !== null ? ` (${info.buildLabel})` : ""}.
     </Infobar>
   );
 }
