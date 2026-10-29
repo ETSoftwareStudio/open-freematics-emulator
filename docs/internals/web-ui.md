@@ -51,18 +51,22 @@ Dial geometry lives in `gaugeGeometry.ts` and is unit-tested; a gauge's display 
 UI choices and may be narrower than what the PID can encode, so the PID list stays the place for
 exact values. PID controls share `usePidControl` for drafts and send de-duplication.
 
-The cluster is dark in both themes. Its colors are the `gauge-*` tokens in `index.css`: the signal
-orange is the value set on the emulator, cyan the scan tool's read-back (always with its triangle
-shape and a label), amber and red are reserved for zones and lamps, and text stays in the ink
-tokens. The pairs were checked for color-vision separation on the cluster face; re-check before
-changing them. A focused gauge brightens with the `*-focus` ink and tick tokens; keyboard focus
-adds a thin `focus-ring` circle on the dial, never a box around the gauge.
+The cluster follows the window, except the two round dials, which stay dark in both themes: in a
+light window each sits on a dark face with a light bezel ring (`--dial-face`, `--dial-shadow`).
+Its colors are the `gauge-*` tokens in `index.css`, with a light and a dark set: `gauge-dark`
+scopes the dark set onto a dial, and `gauge-themed` hands an element inside it back to the window's
+set (the key hint under a dial). The signal orange is the value set on the emulator, cyan the scan
+tool's read-back (always with its triangle shape and a label), amber and red are reserved for zones
+and lamps, and text stays in the ink tokens. The pairs were checked for contrast and color-vision
+separation on both faces; re-check before changing them. A focused gauge strengthens with the
+`*-focus` ink and tick tokens; keyboard focus adds a thin `focus-ring` circle on the dial, never a
+box around the gauge.
 
 ## Color
 
 Every color is an `oklch()` token in `index.css`: `:root` holds light, `.dark` holds dark, and the
-theme follows the `.dark` class on `<html>`. A `.dark` class on a subtree (the cluster in a light
-window) makes everything inside it dark. Shell surfaces are `window`, `toolbar`, `pane`,
+theme follows the `.dark` class on `<html>`. A `.dark` class on a subtree makes everything inside
+it dark. Shell surfaces are `window`, `toolbar`, `pane`,
 `pane-sunken` and `separator`; `signal` is the one accent, for needles, the active state and primary
 actions. Use `text-signal` for icons and short emphasis, never body text. Focus uses `ring`, a
 neutral, not the signal.
@@ -82,4 +86,4 @@ the user agent is the only signal; the preload exposes nothing but `window.fme.a
 `useAppearance()` is System, Light or Dark. The browser keeps it in localStorage; the desktop app
 keeps it in the main process (the page's origin changes each launch) and sets
 `nativeTheme.themeSource`, so the page only ever follows `prefers-color-scheme`. The inline script
-in `index.html` applies it before first paint. The instrument cluster stays dark in both.
+in `index.html` applies it before first paint. The round dials stay dark in both.

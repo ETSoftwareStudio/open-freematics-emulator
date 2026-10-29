@@ -203,7 +203,7 @@ export function GaugeHint({
     <p
       aria-hidden
       className={cn(
-        "pointer-events-none flex items-center justify-center gap-3 whitespace-nowrap text-2xs text-gauge-ink-muted opacity-0 transition-opacity duration-150",
+        "gauge-themed pointer-events-none flex items-center justify-center gap-3 whitespace-nowrap text-2xs text-gauge-ink-muted opacity-0 transition-opacity duration-150",
         className,
       )}
     >

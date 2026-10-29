@@ -173,12 +173,17 @@ export function ClusterPanel({ className }: { className?: string }) {
   const toneOf = (s: Spec) => zoneAt(s.zones ?? [], valueOf(s));
   const odometer = state.pids[ODOMETER] ?? 0;
   // Container units: the dash is a size container, so dials fit its width and its height.
-  const dial = "w-[min(37.5cqw,calc(100cqh-1.75rem))] shrink-0";
+  // The dials stay dark in a light window, on a face painted behind the SVG; isolate keeps the
+  // face above the pane.
+  const dial = cn(
+    "w-[min(37.5cqw,calc(100cqh-1.75rem))] shrink-0",
+    "gauge-dark isolate before:absolute before:inset-x-0 before:top-0 before:-z-10 before:aspect-square before:rounded-full before:bg-(image:--dial-face) before:shadow-(--dial-shadow)",
+  );
 
   return (
     <section
       aria-label="Instrument cluster"
-      className={cn("dark @container flex flex-col text-gauge-ink", className)}
+      className={cn("@container flex flex-col text-gauge-ink", className)}
     >
       <div
         className={cn(
