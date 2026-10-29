@@ -147,7 +147,7 @@ function Lamp({
           href={href}
           className={cn(
             className,
-            "rounded-sm underline-offset-2 outline-none hover:underline focus-visible:ring-1 focus-visible:ring-focus-ring",
+            "cursor-default rounded-sm outline-none hover:text-gauge-ink-focus focus-visible:ring-1 focus-visible:ring-focus-ring",
           )}
         >
           {content}
