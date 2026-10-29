@@ -18,25 +18,13 @@ function FirmwareInfobar() {
     <Infobar
       tone="warning"
       icon={DownloadIcon}
-      actions={
-        <>
-          <Button
-            size="micro"
-            variant="ghost-muted"
-            render={
-              <a href={LATEST_OFFICIAL_FIRMWARE.downloadUrl} target="_blank" rel="noreferrer" />
-            }
-          >
-            Release Notes
-          </Button>
-          <UpdateInstructions />
-        </>
-      }
+      actions={<UpdateInstructions />}
       onDismiss={() => setDismissed(latest)}
     >
       <b>Firmware V{latest} is available.</b> This MK2 runs V{info.version}
-      {info.buildLabel !== null ? ` (${info.buildLabel})` : ""}. V{latest} adds pending and
-      permanent trouble codes and the calibration ID.
+      {info.buildLabel !== null ? ` (${info.buildLabel})` : ""}. Freematics publishes no release
+      notes; the V{latest} image has commands for pending and permanent codes and the calibration
+      ID, which V{info.version} rejects.
     </Infobar>
   );
 }
