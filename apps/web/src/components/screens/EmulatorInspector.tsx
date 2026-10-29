@@ -1,12 +1,11 @@
-import { Inspector, InspectorGroup } from "~/components/shell/Inspector";
-import { DevicePanel } from "~/components/emulator/DevicePanel";
-import { DtcPanel } from "~/components/emulator/DtcPanel";
-import { FirmwareDetails } from "~/components/emulator/Firmware";
-import { Panel } from "~/components/emulator/Panel";
-import { PidPanel } from "~/components/emulator/PidPanel";
-import { ReadinessPanel } from "~/components/emulator/ReadinessPanel";
+import { DiagnosticsGroup } from "~/components/inspector/DiagnosticsGroup";
+import { FirmwareGroup } from "~/components/inspector/FirmwareGroup";
+import { PidGroups } from "~/components/inspector/PidGroups";
+import { ReadinessGroup } from "~/components/inspector/ReadinessGroup";
+import { VehicleGroup } from "~/components/inspector/VehicleGroup";
+import { Inspector } from "~/components/shell/Inspector";
 
-/** The emulator screen's right-hand inspector: everything the emulator reports, by group. */
+/** The emulator screen's right-hand inspector: every setting the emulator answers with, by group. */
 export function EmulatorInspector({ className }: { className?: string }) {
   return (
     <Inspector
@@ -14,32 +13,11 @@ export function EmulatorInspector({ className }: { className?: string }) {
       filterPlaceholder="Filter PIDs and settings"
       className={className}
     >
-      <Panel.Embedded value>
-        <InspectorGroup id="vehicle" title="Vehicle" keywords="ignition protocol vin">
-          <DevicePanel />
-        </InspectorGroup>
-        <InspectorGroup
-          id="diagnostics"
-          title="Diagnostics"
-          keywords="trouble codes dtc check engine mil"
-        >
-          <DtcPanel />
-        </InspectorGroup>
-        <InspectorGroup id="readiness" title="Readiness" keywords="monitors">
-          <ReadinessPanel />
-        </InspectorGroup>
-        <InspectorGroup id="live-data" title="Live data" keywords="pid mode 01 sensors">
-          <PidPanel />
-        </InspectorGroup>
-        <InspectorGroup
-          id="firmware"
-          title="Firmware"
-          keywords="version update"
-          defaultOpen={false}
-        >
-          <FirmwareDetails />
-        </InspectorGroup>
-      </Panel.Embedded>
+      <VehicleGroup />
+      <DiagnosticsGroup />
+      <ReadinessGroup />
+      <PidGroups />
+      <FirmwareGroup />
     </Inspector>
   );
 }

@@ -53,6 +53,7 @@ export const setIgnitionAtom = EmulatorClient.mutation(WS_METHODS.setIgnition);
 export const setProtocolAtom = EmulatorClient.mutation(WS_METHODS.setProtocol);
 export const setVinEnabledAtom = EmulatorClient.mutation(WS_METHODS.setVinEnabled);
 export const setVinAtom = EmulatorClient.mutation(WS_METHODS.setVin);
+export const setCalibrationIdAtom = EmulatorClient.mutation(WS_METHODS.setCalibrationId);
 // One mutation per PID: a new value cancels that PID's in-flight update, not other PIDs'.
 export const setPidAtom = Atom.family((_pid: string) => EmulatorClient.mutation(WS_METHODS.setPid));
 export const setDtcsAtom = EmulatorClient.mutation(WS_METHODS.setDtcs);
