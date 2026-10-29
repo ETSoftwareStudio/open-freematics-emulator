@@ -9,6 +9,7 @@ import {
   type EmulatorState,
   type ObdProtocol,
   type PidId,
+  type Preset,
   type ReadinessMonitorId,
   type SerialPortInfo,
   type SerialPortListError,
@@ -57,6 +58,11 @@ export class EmulatorSession extends Context.Service<
     readonly setVin: (vin: string) => Effect.Effect<void, OperationError>;
     readonly setCalibrationId: (calibrationId: string) => Effect.Effect<void, OperationError>;
     readonly setPid: (pid: PidId, value: number) => Effect.Effect<void, OperationError>;
+    /**
+     * Sets the preset's PIDs in its order and records it as the last preset. If a command
+     * fails, the PIDs the device acknowledged stay set and the last preset is unchanged.
+     */
+    readonly applyPreset: (preset: Preset) => Effect.Effect<void, OperationError>;
     readonly setDtcs: (
       mode: DtcMode,
       codes: ReadonlyArray<DtcCode>,
@@ -316,14 +322,45 @@ const make = Effect.gen(function* () {
     cleared,
   ).pipe(Effect.withSpan("EmulatorSession.clearDtcs"));
 
+  const clampFor = (pid: PidId, value: number) => {
+    const definition = findPid(pid);
+    return definition === undefined ? value : clampPidValue(definition, value);
+  };
+
+  // Other PID edits keep `lastPreset`: the UI shows them as edits to it.
   const setPid = Effect.fn("EmulatorSession.setPid")(function* (pid: PidId, value: number) {
     yield* Effect.annotateCurrentSpan("pid", pid);
-    const definition = findPid(pid);
-    const clamped = definition === undefined ? value : clampPidValue(definition, value);
+    const clamped = clampFor(pid, value);
     yield* apply(
       () => [pidCommand(pid, clamped)],
       (current) => ({ ...current, pids: { ...current.pids, [pid]: clamped } }),
     );
+  }, locked);
+
+  const applyPreset = Effect.fn("EmulatorSession.applyPreset")(function* (preset: Preset) {
+    yield* Effect.annotateCurrentSpan("preset", preset.id);
+    const values = Object.entries(preset.pids).map(
+      ([pid, value]) => [pid as PidId, clampFor(pid as PidId, value)] as const,
+    );
+    const withPids = (current: EmulatorState, set: ReadonlyArray<readonly [PidId, number]>) => ({
+      ...current,
+      pids: { ...current.pids, ...Object.fromEntries(set) },
+    });
+    const connection = yield* Ref.get(active);
+    if (Option.isSome(connection)) {
+      const { client } = connection.value;
+      const acknowledged: Array<readonly [PidId, number]> = [];
+      yield* Effect.gen(function* () {
+        for (const entry of values) {
+          yield* client.command(pidCommand(...entry));
+          acknowledged.push(entry);
+        }
+      }).pipe(Effect.onError(() => update((current) => withPids(current, acknowledged))));
+    }
+    yield* update((current) => ({
+      ...withPids(current, values),
+      lastPreset: { id: preset.id, name: preset.name },
+    }));
   }, locked);
 
   const setReadiness = Effect.fn("EmulatorSession.setReadiness")(function* (
@@ -386,6 +423,7 @@ const make = Effect.gen(function* () {
       (s, calibrationId) => ({ ...s, calibrationId }),
     ),
     setPid,
+    applyPreset,
     setDtcs,
     clearDtcs: locked(clearDtcs),
     setReadiness,

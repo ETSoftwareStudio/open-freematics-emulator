@@ -19,4 +19,5 @@ export const makeDefaultState = (): EmulatorState => ({
       { supported: true, complete: true },
     ]),
   ) as Record<ReadinessMonitorId, ReadinessMonitor>,
+  lastPreset: null,
 });

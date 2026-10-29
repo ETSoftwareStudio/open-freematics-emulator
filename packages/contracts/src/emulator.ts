@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import { CalibrationId, DtcCode, PidId, Vin } from "./baseSchemas.ts";
+import { PresetRef } from "./presets.ts";
 
 export const ObdProtocol = Schema.Literals([
   "CAN_11B_500K",
@@ -101,6 +102,8 @@ export const EmulatorState = Schema.Struct({
   dtcs: Schema.Struct({ "03": DtcList, "07": DtcList, "0A": DtcList }),
   pids: Schema.Record(PidId, Schema.Number),
   readiness: Schema.Record(ReadinessMonitorId, ReadinessMonitor),
+  /** Kept when PIDs are edited afterwards; compare against the preset to show the edits. */
+  lastPreset: Schema.NullOr(PresetRef),
 });
 export type EmulatorState = typeof EmulatorState.Type;
 

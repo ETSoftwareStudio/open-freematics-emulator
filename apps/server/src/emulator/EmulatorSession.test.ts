@@ -1,4 +1,4 @@
-import type { DtcCode, EmulatorState, PidId } from "@fme/contracts";
+import type { DtcCode, EmulatorState, PidId, Preset, PresetId } from "@fme/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -11,7 +11,7 @@ import * as EmulatorSession from "./EmulatorSession.ts";
 const TestLayer = EmulatorSession.layer.pipe(
   Layer.provideMerge(SimulatedDevice.layer),
   Layer.provide(SerialPorts.layer),
-  Layer.provide(TrafficLog.layer),
+  Layer.provideMerge(TrafficLog.layer),
 );
 
 const stateOf = Effect.gen(function* () {
@@ -117,4 +117,72 @@ describe("EmulatorSession", () => {
       }),
     );
   });
+});
+
+const testPreset = (pids: Record<string, number>): Preset => ({
+  id: "user:test-drive" as PresetId,
+  name: "Test drive",
+  builtIn: false,
+  pids: pids as Record<PidId, number>,
+});
+
+describe("EmulatorSession.applyPreset", () => {
+  it.effect("sends the preset's PIDs in order and keeps it as the last preset after edits", () =>
+    Effect.gen(function* () {
+      const session = yield* EmulatorSession.EmulatorSession;
+      const traffic = yield* TrafficLog.TrafficLog;
+      yield* session.connect({ _tag: "simulated" });
+      yield* session.applyPreset(testPreset({ "010C": 3100, "010D": 88 }));
+
+      const sent = yield* traffic.stream.pipe(
+        Stream.takeUntil((entry) => entry.text === "ATSET 010D=0x58"),
+        Stream.filter((entry) => entry.direction === "tx" && entry.text.startsWith("ATSET")),
+        Stream.runCollect,
+      );
+      expect(sent.slice(-2).map((entry) => entry.text)).toEqual([
+        "ATSET 010C=0x30,0x70",
+        "ATSET 010D=0x58",
+      ]);
+      expect((yield* stateOf).lastPreset).toEqual({ id: "user:test-drive", name: "Test drive" });
+
+      yield* session.setPid("010C" as PidId, 2000);
+      const edited = yield* stateOf;
+      expect(edited.pids["010C" as PidId]).toBe(2000);
+      expect(edited.lastPreset).toEqual({ id: "user:test-drive", name: "Test drive" });
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("stages the preset while disconnected and pushes it on connect", () =>
+    Effect.gen(function* () {
+      const session = yield* EmulatorSession.EmulatorSession;
+      const { firmware } = yield* SimulatedDevice.SimulatedDevice;
+      yield* session.applyPreset(testPreset({ "010C": 3100, "0110": 99.8 }));
+      const staged = yield* stateOf;
+      expect(staged.connection._tag).toBe("disconnected");
+      expect(staged.pids["010C" as PidId]).toBe(3100);
+      expect(staged.lastPreset?.id).toBe("user:test-drive");
+      expect(firmware.pids.has("010C")).toBe(false);
+
+      yield* session.connect({ _tag: "simulated" });
+      expect(firmware.handle("ATGET 010C")).toBe("010C=30 70 \r");
+      expect(firmware.handle("ATGET 0110")).toBe("0110=26 FC \r");
+      expect((yield* stateOf).lastPreset?.id).toBe("user:test-drive");
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("keeps the PIDs the device took when a later one is rejected", () =>
+    Effect.gen(function* () {
+      const session = yield* EmulatorSession.EmulatorSession;
+      yield* session.connect({ _tag: "simulated" });
+      // The firmware rejects negative decimal values, which uncatalogued PIDs are sent as.
+      const error = yield* session
+        .applyPreset(testPreset({ "010C": 3100, "01FF": -5, "010D": 88 }))
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({ _tag: "EmulatorCommandError", reason: "rejected" });
+      const state = yield* stateOf;
+      expect(state.pids["010C" as PidId]).toBe(3100);
+      expect(state.pids["010D" as PidId]).toBe(50);
+      expect(state.lastPreset).toBeNull();
+    }).pipe(Effect.provide(TestLayer)),
+  );
 });

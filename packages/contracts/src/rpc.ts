@@ -19,6 +19,13 @@ import {
   TrafficEntry,
 } from "./emulator.ts";
 import { PidId } from "./baseSchemas.ts";
+import {
+  Preset,
+  PresetChangeError,
+  PresetId,
+  PresetNotFoundError,
+  SavePresetInput,
+} from "./presets.ts";
 import { ReaderConnectError, ReaderOperationError, ReaderState, ReaderTarget } from "./reader.ts";
 
 export const WS_METHODS = {
@@ -43,6 +50,10 @@ export const WS_METHODS = {
   readerReadDtcs: "reader.readDtcs",
   readerReadVin: "reader.readVin",
   readerSubscribeState: "reader.subscribeState",
+  subscribePresets: "presets.subscribe",
+  applyPreset: "presets.apply",
+  savePreset: "presets.save",
+  deletePreset: "presets.delete",
 } as const;
 
 const operation = <const Tag extends string, P extends Schema.Top>(tag: Tag, payload: P) =>
@@ -83,4 +94,18 @@ export const WsRpcGroup = RpcGroup.make(
   Rpc.make(WS_METHODS.readerReadDtcs, { error: ReaderOperationError }),
   Rpc.make(WS_METHODS.readerReadVin, { error: ReaderOperationError }),
   Rpc.make(WS_METHODS.readerSubscribeState, { success: ReaderState, stream: true }),
+  Rpc.make(WS_METHODS.subscribePresets, { success: Schema.Array(Preset), stream: true }),
+  Rpc.make(WS_METHODS.applyPreset, {
+    payload: Schema.Struct({ id: PresetId }),
+    error: Schema.Union([PresetNotFoundError, EmulatorOperationError]),
+  }),
+  Rpc.make(WS_METHODS.savePreset, {
+    payload: SavePresetInput,
+    success: Preset,
+    error: PresetChangeError,
+  }),
+  Rpc.make(WS_METHODS.deletePreset, {
+    payload: Schema.Struct({ id: PresetId }),
+    error: PresetChangeError,
+  }),
 );

@@ -11,7 +11,8 @@
     "./defaultState": "./src/defaultState.ts",
     "./elm327": "./src/elm327.ts",
     "./dtcs": "./src/dtcs.ts",
-    "./firmware": "./src/firmware.ts"
+    "./firmware": "./src/firmware.ts",
+    "./presets": "./src/presets.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

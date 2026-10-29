@@ -38,6 +38,11 @@ export const readerStateAtom = EmulatorClient.runtime
   .atom(subscribe((client) => client(WS_METHODS.readerSubscribeState, undefined)))
   .pipe(Atom.keepAlive, Atom.withLabel("reader:state"));
 
+/** Built-ins first, then user presets; every window sees the same list. */
+export const presetsAtom = EmulatorClient.runtime
+  .atom(subscribe((client) => client(WS_METHODS.subscribePresets, undefined)))
+  .pipe(Atom.keepAlive, Atom.withLabel("presets"));
+
 export const portsAtom = EmulatorClient.query(WS_METHODS.listPorts, undefined, {
   reactivityKeys: ["ports"],
 });
@@ -59,3 +64,6 @@ export const readerDisconnectAtom = EmulatorClient.mutation(WS_METHODS.readerDis
 export const readerWatchAtom = EmulatorClient.mutation(WS_METHODS.readerWatch);
 export const readerReadDtcsAtom = EmulatorClient.mutation(WS_METHODS.readerReadDtcs);
 export const readerReadVinAtom = EmulatorClient.mutation(WS_METHODS.readerReadVin);
+export const applyPresetAtom = EmulatorClient.mutation(WS_METHODS.applyPreset);
+export const savePresetAtom = EmulatorClient.mutation(WS_METHODS.savePreset);
+export const deletePresetAtom = EmulatorClient.mutation(WS_METHODS.deletePreset);

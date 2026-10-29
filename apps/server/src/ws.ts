@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import { RpcSerialization, RpcServer } from "effect/rpc";
 import * as EmulatorSession from "./emulator/EmulatorSession.ts";
 import * as ObdReader from "./obd/ObdReader.ts";
+import * as PresetStore from "./presets/PresetStore.ts";
 import * as TrafficLog from "./traffic/TrafficLog.ts";
 
 const handlers = WsRpcGroup.toLayer(
@@ -11,6 +12,7 @@ const handlers = WsRpcGroup.toLayer(
     const session = yield* EmulatorSession.EmulatorSession;
     const traffic = yield* TrafficLog.TrafficLog;
     const reader = yield* ObdReader.ObdReader;
+    const presets = yield* PresetStore.PresetStore;
     return WsRpcGroup.of({
       [WS_METHODS.listPorts]: () => session.listPorts,
       [WS_METHODS.connect]: ({ target }) => session.connect(target),
@@ -35,6 +37,10 @@ const handlers = WsRpcGroup.toLayer(
       [WS_METHODS.readerReadDtcs]: () => reader.readDtcs,
       [WS_METHODS.readerReadVin]: () => reader.readVin,
       [WS_METHODS.readerSubscribeState]: () => reader.state,
+      [WS_METHODS.subscribePresets]: () => presets.presets,
+      [WS_METHODS.applyPreset]: ({ id }) => presets.apply(id),
+      [WS_METHODS.savePreset]: (input) => presets.save(input),
+      [WS_METHODS.deletePreset]: ({ id }) => presets.delete(id),
     });
   }),
 );
