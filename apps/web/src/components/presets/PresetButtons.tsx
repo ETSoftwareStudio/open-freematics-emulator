@@ -48,7 +48,7 @@ function PresetButton({
     >
       <span className="truncate font-medium text-foreground text-xs">{preset.name}</span>
       <span className="truncate text-2xs text-subtle-foreground tabular-nums">
-        {pending ? "Applying…" : presetSummary(preset.pids)}
+        {presetSummary(preset.pids)}
       </span>
     </button>
   );
