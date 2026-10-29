@@ -1,5 +1,7 @@
 import { SquareArrowOutUpRightIcon } from "lucide-react";
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "~/components/ui/popover";
+import { Separator } from "~/components/ui/separator";
+import { version } from "../../../package.json";
 
 export function AboutPopover() {
   return (
@@ -18,24 +20,31 @@ export function AboutPopover() {
           </span>
         </PopoverTrigger>
       </h1>
-      <PopoverPopup align="start" className="w-80" width="auto">
-        <PopoverTitle className="font-medium text-sm">About Freematics Emulator</PopoverTitle>
-        <p className="mt-2 text-xs">
-          An independent, unofficial app for the Freematics OBD-II Emulator MK2. It is not
-          affiliated with, endorsed by or supported by Freematics.
-        </p>
-        <p className="mt-2 text-muted-foreground text-xs">
-          Freematics and product names are trademarks of their owner, used here only to say which
-          device the app works with. For help with the device itself, contact Freematics.
+      <PopoverPopup align="start" className="w-72" width="auto">
+        <div className="flex flex-col items-center pt-1 text-center">
+          <img src="/favicon.svg" alt="" className="size-16" />
+          <PopoverTitle className="mt-3 font-semibold text-[0.9375rem] leading-tight">
+            Freematics Emulator
+          </PopoverTitle>
+          <p className="mt-1 text-muted-foreground text-xs tabular-nums">Version {version}</p>
+          <p className="mt-3 text-pretty text-xs">
+            Sets what an OBD-II Emulator MK2 reports to a scan tool: live data, trouble codes and
+            VIN.
+          </p>
+        </div>
+        <Separator className="my-3" />
+        <p className="text-balance text-center text-2xs text-muted-foreground">
+          Unofficial. Not affiliated with, endorsed by or supported by Freematics. Freematics and
+          product names are trademarks of their owner.
         </p>
         <a
           href="https://freematics.com/products/freematics-obd-emulator-mk2/"
           target="_blank"
           rel="noreferrer noopener"
-          className="mt-3 inline-flex items-center gap-1.5 font-medium text-info-foreground text-xs hover:underline"
+          className="mx-auto mt-2 flex w-fit items-center gap-1 text-2xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
         >
-          <SquareArrowOutUpRightIcon className="size-3.5" />
-          Official MK2 product page
+          MK2 product page
+          <SquareArrowOutUpRightIcon className="size-3" />
         </a>
       </PopoverPopup>
     </Popover>
