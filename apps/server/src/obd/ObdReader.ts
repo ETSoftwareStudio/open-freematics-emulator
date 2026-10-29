@@ -3,6 +3,8 @@ import {
   ReaderConnectError,
   ReaderNotConnectedError,
   type PidId,
+  type PidReading,
+  type PollingSettings,
   type ReaderState,
   type ReaderTarget,
 } from "@fme/contracts";
@@ -17,7 +19,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
-import type * as Stream from "effect/Stream";
+import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SerialPorts from "../device/SerialPorts.ts";
 import * as SimulatedDevice from "../device/SimulatedDevice.ts";
@@ -28,7 +30,6 @@ import * as ElmClient from "./ElmClient.ts";
 const DEFAULT_WATCH: ReadonlyArray<PidId> = (["010C", "010D", "0105"] as const).map(
   (pid) => pid as PidId,
 );
-const POLL_PAUSE = "150 millis";
 const IDLE_PAUSE = "1 second";
 
 type OperationError = ReaderNotConnectedError | ReaderCommandError;
@@ -46,7 +47,13 @@ export class ObdReader extends Context.Service<
     readonly disconnect: Effect.Effect<void>;
     /** Replaces the PIDs polled while connected. */
     readonly watch: (pids: ReadonlyArray<PidId>) => Effect.Effect<void>;
+    readonly setPolling: (polling: PollingSettings) => Effect.Effect<void>;
+    /** Reads every watched PID once, logging each exchange, even while polling is paused. */
+    readonly readOnce: Effect.Effect<void, OperationError>;
+    /** Reads the stored codes (Mode 03) and the MIL and readiness bits (PID 0101). */
     readonly readDtcs: Effect.Effect<void, OperationError>;
+    /** Clears the codes from the vehicle side (Mode 04), then reads them back. */
+    readonly clearDtcs: Effect.Effect<void, OperationError>;
     readonly readVin: Effect.Effect<void, OperationError>;
   }
 >()("@fme/server/obd/ObdReader") {}
@@ -60,10 +67,22 @@ interface ActiveConnection {
 const initialState: ReaderState = {
   connection: { _tag: "disconnected" },
   watching: DEFAULT_WATCH,
+  polling: { paused: false, interval: 500 },
+  pollRate: 0,
   readings: {},
+  unanswered: [],
   vehicleResponding: false,
+  voltage: null,
   dtcs: null,
+  dtcsAt: null,
+  monitorStatus: null,
   vin: null,
+};
+
+/** `ATRV` answers like `12.6V`. */
+const parseVoltage = (lines: ReadonlyArray<string>) => {
+  const match = lines.map((line) => /(\d+(?:\.\d+)?)\s*V/i.exec(line)).find((m) => m !== null);
+  return match === undefined ? null : Number(match[1]);
 };
 
 const make = Effect.gen(function* () {
@@ -125,34 +144,48 @@ const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => null),
     );
 
-  // One poll per watched PID; per-PID work shares the loop's span instead of opening its own.
-  const pollOnce = Effect.fnUntraced(function* (client: ElmClient.ElmClient) {
-    const { watching, connection } = yield* SubscriptionRef.get(state);
+  const readVoltage = (client: ElmClient.ElmClient) =>
+    client.request("ATRV", { quiet: true }).pipe(
+      Effect.map(parseVoltage),
+      Effect.orElseSucceed(() => null),
+    );
+
+  // Per-PID and per-cycle work shares the caller's span instead of opening its own.
+  const readWatched = Effect.fnUntraced(function* (client: ElmClient.ElmClient, quiet: boolean) {
+    const { watching } = yield* SubscriptionRef.get(state);
+    const answered: Record<string, PidReading> = {};
+    const unanswered: Array<PidId> = [];
     for (const pid of watching) {
-      const reply = yield* client.query(pid, { quiet: true }).pipe(Effect.option);
-      const at = yield* Clock.currentTimeMillis;
+      const reply = yield* client.query(pid, { quiet }).pipe(Effect.option);
       const raw = Option.isSome(reply) ? parsePidReply(reply.value, pid) : undefined;
-      const definition = findPid(pid);
-      const current = yield* SubscriptionRef.get(state);
-      const responding = Option.isSome(reply);
-      const unchanged =
-        current.vehicleResponding === responding &&
-        (raw === undefined || current.readings[pid]?.raw.join() === raw.join());
-      // Publishing only changes keeps a steady poll from flooding every client with state.
-      if (unchanged) continue;
-      yield* update((s) =>
-        raw === undefined
-          ? { ...s, vehicleResponding: responding }
-          : {
-              ...s,
-              vehicleResponding: true,
-              readings: {
-                ...s.readings,
-                [pid]: { value: definition?.decode(raw) ?? raw[0] ?? 0, raw, at },
-              },
-            },
-      );
+      if (raw === undefined) {
+        unanswered.push(pid);
+        continue;
+      }
+      const at = yield* Clock.currentTimeMillis;
+      answered[pid] = { value: findPid(pid)?.decode(raw) ?? raw[0] ?? 0, raw, at };
     }
+    // One update per cycle, so clients see a whole poll at once.
+    yield* update((s) => ({
+      ...s,
+      readings: { ...s.readings, ...answered },
+      unanswered,
+      vehicleResponding:
+        watching.length === 0 ? s.vehicleResponding : unanswered.length < watching.length,
+    }));
+    return watching.length;
+  });
+
+  const pollCycle = Effect.fnUntraced(function* (client: ElmClient.ElmClient) {
+    yield* SubscriptionRef.changes(state).pipe(
+      Stream.filter((s) => !s.polling.paused),
+      Stream.runHead,
+    );
+    const started = yield* Clock.currentTimeMillis;
+    const requests = yield* readWatched(client, true);
+    const voltage = yield* readVoltage(client);
+    const { connection, polling, ...current } = yield* SubscriptionRef.get(state);
+    if (voltage !== current.voltage) yield* update((s) => ({ ...s, voltage }));
     if (connection._tag === "connected" && connection.protocol === null) {
       const protocol = yield* describeProtocol(client);
       if (protocol !== null && protocol !== "A0" && protocol !== "0") {
@@ -163,7 +196,13 @@ const make = Effect.gen(function* () {
         );
       }
     }
-    yield* Effect.sleep(watching.length > 0 ? POLL_PAUSE : IDLE_PAUSE);
+    const elapsed = (yield* Clock.currentTimeMillis) - started;
+    // A slow adapter stretches the cycle past the interval.
+    const pollRate = Math.round((requests * 1000) / Math.max(polling.interval, elapsed));
+    if (pollRate !== current.pollRate) {
+      yield* update((s) => ({ ...s, pollRate: s.polling.paused ? 0 : pollRate }));
+    }
+    yield* Effect.sleep(requests > 0 ? Math.max(0, polling.interval - elapsed) : IDLE_PAUSE);
   });
 
   const connect = Effect.fn("ObdReader.connect")(function* (target: ReaderTarget) {
@@ -172,6 +211,7 @@ const make = Effect.gen(function* () {
     yield* update((s) => ({
       ...initialState,
       watching: s.watching,
+      polling: s.polling,
       connection: { _tag: "connecting", target },
     }));
     const id = yield* Ref.updateAndGet(connectionIds, (n) => n + 1);
@@ -199,14 +239,16 @@ const make = Effect.gen(function* () {
         .query("0100", { timeout: ElmClient.SEARCH_TIMEOUT })
         .pipe(Effect.option);
       const protocol = Option.isSome(searched) ? yield* describeProtocol(client) : null;
+      const voltage = yield* readVoltage(client);
 
       yield* Ref.set(active, Option.some({ id, client, scope }));
       yield* update((s) => ({
         ...s,
         vehicleResponding: Option.isSome(searched),
+        voltage,
         connection: { _tag: "connected", target, adapter: identity, protocol },
       }));
-      yield* Effect.forever(pollOnce(client)).pipe(Effect.forkIn(scope));
+      yield* Effect.forever(pollCycle(client)).pipe(Effect.forkIn(scope));
     });
 
     yield* attempt.pipe(
@@ -224,6 +266,7 @@ const make = Effect.gen(function* () {
     yield* update((s) => ({
       ...s,
       vehicleResponding: false,
+      pollRate: 0,
       connection: { _tag: "disconnected" },
     }));
   }).pipe(lock.withPermit, Effect.withSpan("ObdReader.disconnect"));
@@ -238,14 +281,39 @@ const make = Effect.gen(function* () {
     return connection.value.client;
   });
 
-  const readDtcs = Effect.gen(function* () {
-    const client = yield* currentClient;
+  const setPolling = Effect.fn("ObdReader.setPolling")(function* (polling: PollingSettings) {
+    yield* update((s) => ({ ...s, polling, pollRate: polling.paused ? 0 : s.pollRate }));
+  });
+
+  const readOnce = Effect.gen(function* () {
+    yield* readWatched(yield* currentClient, false);
+  }).pipe(Effect.withSpan("ObdReader.readOnce"));
+
+  const readCodes = Effect.fnUntraced(function* (client: ElmClient.ElmClient) {
     const lines = yield* client.query("03", { timeout: ElmClient.SEARCH_TIMEOUT });
     const { connection } = yield* SubscriptionRef.get(state);
     const protocol = connection._tag === "connected" ? connection.protocol : null;
     const dtcs = parseDtcReply(lines, 0x03, protocol === null || isCanProtocol(protocol));
-    yield* update((s) => ({ ...s, dtcs }));
+    const monitorStatus = yield* client.query("0101").pipe(
+      Effect.map((reply) => parsePidReply(reply, "0101") ?? null),
+      Effect.orElseSucceed(() => null),
+    );
+    const dtcsAt = yield* Clock.currentTimeMillis;
+    yield* update((s) => ({ ...s, dtcs, dtcsAt, monitorStatus }));
+  });
+
+  const readDtcs = Effect.gen(function* () {
+    yield* readCodes(yield* currentClient);
   }).pipe(Effect.withSpan("ObdReader.readDtcs"));
+
+  const clearDtcs = Effect.gen(function* () {
+    const client = yield* currentClient;
+    const reply = yield* client.query("04", { timeout: ElmClient.SEARCH_TIMEOUT });
+    if (!reply.some((line) => /^44\b/.test(line))) {
+      return yield* new ReaderCommandError({ command: "04", reason: "rejected" });
+    }
+    yield* readCodes(client);
+  }).pipe(Effect.withSpan("ObdReader.clearDtcs"));
 
   const readVin = Effect.gen(function* () {
     const client = yield* currentClient;
@@ -258,7 +326,10 @@ const make = Effect.gen(function* () {
     connect,
     disconnect,
     watch,
+    setPolling,
+    readOnce,
     readDtcs,
+    clearDtcs,
     readVin,
   });
 });

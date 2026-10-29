@@ -192,6 +192,10 @@ export class SimulatedElm327 {
       const data = vehicle.storedDtcs.flatMap(encodeDtc);
       return ["43", hex(vehicle.storedDtcs.length), ...data.map(hex)].join(" ");
     }
+    if (command === "04") {
+      vehicle.storedDtcs = [];
+      return "44";
+    }
     if (command === "07" || command === "0A") return `${command === "07" ? "47" : "4A"} 00`;
     if (command === "0902") {
       if (!vehicle.vinEnabled) return "NO DATA";

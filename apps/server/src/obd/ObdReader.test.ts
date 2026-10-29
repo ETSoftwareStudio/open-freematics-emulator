@@ -43,6 +43,7 @@ describe("ObdReader", () => {
         const state = yield* readerStateWhere((s) => s.connection._tag === "connected");
         expect(state.connection).toMatchObject({ adapter: "ELM327 v1.5", protocol: "A6" });
         expect(state.vehicleResponding).toBe(true);
+        expect(state.voltage).toBe(12.6);
       }),
     );
 
@@ -80,7 +81,64 @@ describe("ObdReader", () => {
         yield* reader.readVin;
         const state = yield* readerStateWhere((s) => s.vin !== null);
         expect(state.dtcs).toEqual(["P0300", "U0100"]);
+        expect(state.monitorStatus?.[0]).toBe(0x82);
+        expect(state.dtcsAt).not.toBeNull();
         expect(state.vin).toBe("1HGCD5654VA061985");
+      }),
+    );
+
+    it.effect("clears codes from the vehicle side with Mode 04", () =>
+      Effect.gen(function* () {
+        const session = yield* EmulatorSession.EmulatorSession;
+        const reader = yield* ObdReader.ObdReader;
+        const simulated = yield* SimulatedDevice.SimulatedDevice;
+        yield* session.setDtcs("03", ["P0301"] as Array<DtcCode>);
+        yield* reader.readDtcs;
+        yield* reader.clearDtcs;
+        const state = yield* readerStateWhere((s) => s.dtcs?.length === 0);
+        expect(simulated.firmware.storedDtcs).toEqual([]);
+        expect(state.dtcs).toEqual([]);
+      }),
+    );
+
+    it.effect("pauses polling, reads once on demand, then resumes", () =>
+      Effect.gen(function* () {
+        const session = yield* EmulatorSession.EmulatorSession;
+        const reader = yield* ObdReader.ObdReader;
+        yield* reader.setPolling({ paused: true, interval: 500 });
+        yield* reader.watch(["010D" as PidId]);
+        // Lets a cycle that started before the pause finish.
+        yield* readerStateWhere((s) => s.pollRate === 0);
+        yield* session.setPid("010D" as PidId, 77);
+        const paused = yield* readerStateWhere((s) => s.polling.paused);
+        expect(paused.readings["010D" as PidId]?.value).not.toBe(77);
+
+        yield* reader.readOnce;
+        yield* readerStateWhere((s) => s.readings["010D" as PidId]?.value === 77);
+
+        yield* session.setPid("010D" as PidId, 88);
+        yield* reader.setPolling({ paused: false, interval: 500 });
+        yield* readerStateWhere((s) => s.readings["010D" as PidId]?.value === 88);
+      }),
+    );
+
+    it.effect("reads each watched PID once per interval", () =>
+      Effect.gen(function* () {
+        const reader = yield* ObdReader.ObdReader;
+        yield* reader.watch(["010C", "010D"] as Array<PidId>);
+        yield* reader.setPolling({ paused: false, interval: 250 });
+        const state = yield* readerStateWhere((s) => s.pollRate === 8);
+        expect(state.polling.interval).toBe(250);
+      }),
+    );
+
+    it.effect("marks PIDs the vehicle does not answer", () =>
+      Effect.gen(function* () {
+        const reader = yield* ObdReader.ObdReader;
+        yield* reader.watch(["010C", "0151"] as Array<PidId>);
+        const state = yield* readerStateWhere((s) => s.unanswered.includes("0151" as PidId));
+        expect(state.unanswered).toEqual(["0151"]);
+        expect(state.vehicleResponding).toBe(true);
       }),
     );
 

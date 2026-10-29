@@ -26,7 +26,13 @@ import {
   PresetNotFoundError,
   SavePresetInput,
 } from "./presets.ts";
-import { ReaderConnectError, ReaderOperationError, ReaderState, ReaderTarget } from "./reader.ts";
+import {
+  PollingSettings,
+  ReaderConnectError,
+  ReaderOperationError,
+  ReaderState,
+  ReaderTarget,
+} from "./reader.ts";
 
 export const WS_METHODS = {
   listPorts: "emulator.listPorts",
@@ -49,6 +55,9 @@ export const WS_METHODS = {
   readerWatch: "reader.watch",
   readerReadDtcs: "reader.readDtcs",
   readerReadVin: "reader.readVin",
+  readerClearDtcs: "reader.clearDtcs",
+  readerSetPolling: "reader.setPolling",
+  readerReadOnce: "reader.readOnce",
   readerSubscribeState: "reader.subscribeState",
   subscribePresets: "presets.subscribe",
   applyPreset: "presets.apply",
@@ -93,6 +102,9 @@ export const WsRpcGroup = RpcGroup.make(
   Rpc.make(WS_METHODS.readerWatch, { payload: Schema.Struct({ pids: Schema.Array(PidId) }) }),
   Rpc.make(WS_METHODS.readerReadDtcs, { error: ReaderOperationError }),
   Rpc.make(WS_METHODS.readerReadVin, { error: ReaderOperationError }),
+  Rpc.make(WS_METHODS.readerClearDtcs, { error: ReaderOperationError }),
+  Rpc.make(WS_METHODS.readerSetPolling, { payload: PollingSettings }),
+  Rpc.make(WS_METHODS.readerReadOnce, { error: ReaderOperationError }),
   Rpc.make(WS_METHODS.readerSubscribeState, { success: ReaderState, stream: true }),
   Rpc.make(WS_METHODS.subscribePresets, { success: Schema.Array(Preset), stream: true }),
   Rpc.make(WS_METHODS.applyPreset, {
