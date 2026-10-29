@@ -5,6 +5,7 @@ import { BrowserWindow, app, dialog, shell } from "electron";
 
 const SERVER_ENTRY = NodePath.join(import.meta.dirname, "server", "bin.mjs");
 const WEB_ROOT = NodePath.join(import.meta.dirname, "web");
+const ICON = NodePath.join(import.meta.dirname, "icon.png");
 const STARTUP_TIMEOUT_MS = 15_000;
 
 let server: NodeChildProcess.ChildProcess | null = null;
@@ -72,6 +73,7 @@ const createWindow = (url: string) => {
     minHeight: 600,
     title: "Freematics Emulator",
     backgroundColor: "#111214",
+    icon: ICON,
     show: false,
     webPreferences: { sandbox: true, contextIsolation: true },
   });
@@ -105,6 +107,8 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(async () => {
+    // Unpackaged runs live in the stock Electron bundle, whose Dock icon is Electron's.
+    if (!app.isPackaged) app.dock?.setIcon(ICON);
     try {
       // FME_DESKTOP_URL points the window at the dev server instead of the bundled server.
       const url = process.env.FME_DESKTOP_URL ?? (await startServer(await freePort()));

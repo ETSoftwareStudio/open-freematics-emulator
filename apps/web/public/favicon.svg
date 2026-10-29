@@ -1,4 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#0284c7"/>
-  <text x="32" y="32" dy="0.35em" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="26" font-weight="600" fill="#ffffff">FE</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="100 100 824 824">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#322523"/><stop offset="0.5" stop-color="#201715"/><stop offset="1" stop-color="#100908"/></linearGradient>
+    <linearGradient id="value" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#d44996"/><stop offset="0.25" stop-color="#eb567e"/><stop offset="0.5" stop-color="#fa6863"/><stop offset="0.75" stop-color="#ff7f47"/><stop offset="1" stop-color="#ff992b"/></linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#d44996"/><stop offset="0.25" stop-color="#eb567e"/><stop offset="0.5" stop-color="#fa6863"/><stop offset="0.75" stop-color="#ff7f47"/><stop offset="1" stop-color="#ff992b"/></linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#face)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#fff" stroke-opacity="0.08" stroke-width="3"/>
+  <g fill="none" stroke-width="44" stroke-linecap="round">
+    <path d="M321.1 730.9A270 270 0 1 1 702.9 730.9" stroke="#442323"/>
+    <path d="M321.1 730.9A270 270 0 0 1 687.3 334.7" stroke="url(#value)"/>
+  </g>
+  <g stroke="#6e5f5d" stroke-width="10" stroke-linecap="round"><path d="M512 318v28" transform="rotate(-101.25 512 540)"/><path d="M512 318v28" transform="rotate(-67.5 512 540)"/><path d="M512 318v28" transform="rotate(-33.75 512 540)"/><path d="M512 318v28" transform="rotate(0 512 540)"/><path d="M512 318v28" transform="rotate(33.75 512 540)"/><path d="M512 318v28" transform="rotate(67.5 512 540)"/><path d="M512 318v28" transform="rotate(101.25 512 540)"/></g>
+  <path d="M498 560 507 330Q512 318 517 330L526 560Z" fill="#faf4ef" transform="rotate(40.5 512 540)"/>
+  <circle cx="512" cy="540" r="40" fill="#1e1311" stroke="#faf4ef" stroke-width="12"/>
+  <path d="M806.508 330C813.381 330 822.285 330.398 830.699 334.083C847.024 341.233 867.849 357.982 872.167 388.862C875.03 409.333 870.521 448.654 858.484 492.319C846.353 536.325 826.152 586.308 796.402 628.118C779.65 651.662 750.299 662.812 721.277 662.812H581.549C579.563 662.812 577.7 663.674 576.495 665.209L563.619 681.616C558.052 688.71 549.079 692.918 539.521 692.918H485.479C475.921 692.918 466.948 688.71 461.381 681.616L448.505 665.209C447.3 663.674 445.437 662.812 443.451 662.812H303.723C274.701 662.812 245.35 651.662 228.598 628.118C198.848 586.309 178.647 536.325 166.516 492.319C154.479 448.654 149.97 409.333 152.833 388.862C157.151 357.982 177.976 341.233 194.302 334.083C202.716 330.398 211.619 330 218.492 330Z" fill="#140e0c" stroke="url(#rim)" stroke-width="34.3" stroke-linejoin="round" transform="translate(512 696) scale(0.3495) translate(-512.5 -330)"/><g fill="#c3b3ae"><circle cx="431.5" cy="733" r="7.5"/><circle cx="454.5" cy="733" r="7.5"/><circle cx="477.5" cy="733" r="7.5"/><circle cx="500.5" cy="733" r="7.5"/><circle cx="523.5" cy="733" r="7.5"/><circle cx="546.5" cy="733" r="7.5"/><circle cx="569.5" cy="733" r="7.5"/><circle cx="592.5" cy="733" r="7.5"/><circle cx="431.5" cy="772" r="7.5"/><circle cx="454.5" cy="772" r="7.5"/><circle cx="477.5" cy="772" r="7.5"/><circle cx="500.5" cy="772" r="7.5"/><circle cx="523.5" cy="772" r="7.5"/><circle cx="546.5" cy="772" r="7.5"/><circle cx="569.5" cy="772" r="7.5"/><circle cx="592.5" cy="772" r="7.5"/></g>
 </svg>

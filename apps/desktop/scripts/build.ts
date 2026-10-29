@@ -31,6 +31,7 @@ await build({
   deps: { neverBundle: ["electron"] },
 });
 
+NodeFS.cpSync(NodePath.join(root, "build/icon.png"), NodePath.join(root, "dist/icon.png"));
 if (!mainOnly) {
   NodeFS.cpSync(serverBundle, NodePath.join(root, "dist/server/bin.mjs"));
   NodeFS.cpSync(webDist, NodePath.join(root, "dist/web"), { recursive: true });
