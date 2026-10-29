@@ -106,6 +106,14 @@ if (!app.requestSingleInstanceLock()) {
     server?.kill();
   });
 
+  app.setAboutPanelOptions({
+    applicationName: "Freematics Emulator",
+    credits:
+      "An independent, unofficial app for the Freematics OBD-II Emulator MK2. " +
+      "Not affiliated with, endorsed by or supported by Freematics.",
+    iconPath: ICON,
+  });
+
   void app.whenReady().then(async () => {
     // Unpackaged runs live in the stock Electron bundle, whose Dock icon is Electron's.
     if (!app.isPackaged) app.dock?.setIcon(ICON);

@@ -9,6 +9,11 @@ that drives it, on macOS, Linux and Windows.
 Under the hood: a Node WebSocket server built from Effect services, and typed RPC contracts
 shared with a React client.
 
+> [!NOTE]
+> This is an independent, unofficial project. It is not affiliated with, endorsed by or
+> supported by Freematics. Freematics and product names are trademarks of their owner, used here
+> only to say which device the app works with.
+
 ## Quick start
 
 ```sh

@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { connectAtom, disconnectAtom, portsAtom } from "~/rpc/atoms";
+import { AboutPopover } from "./AboutPopover";
 import { useCommand, useEmulatorState } from "~/rpc/hooks";
 
 const SIMULATED = "simulated";
@@ -83,13 +84,7 @@ export function ConnectionBar() {
   return (
     <header className="sticky top-0 z-10 border-b bg-background/85 backdrop-blur">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <img src="/favicon.svg" alt="" className="size-7" />
-          <div className="leading-tight">
-            <h1 className="font-semibold text-sm">Freematics Emulator</h1>
-            <p className="text-muted-foreground text-xs">OBD-II Emulator MK2 control</p>
-          </div>
-        </div>
+        <AboutPopover />
 
         <div className="ms-auto flex flex-wrap items-center gap-2">
           <StatusBadge connection={connection} serverReachable={serverReachable} />
