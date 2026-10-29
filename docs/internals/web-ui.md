@@ -45,7 +45,18 @@ Dial geometry lives in `gaugeGeometry.ts` and is unit-tested; a gauge's display 
 UI choices and may be narrower than what the PID can encode, so the PID list stays the place for
 exact values. PID controls share `usePidControl` for drafts and send de-duplication.
 
-The cluster is dark in both themes. Its colors are the `gauge-*` tokens in `index.css`: blue is the
-value set on the emulator, aqua the scan tool's read-back (always with its triangle shape and a
-label), amber and red are reserved for zones and lamps, and text stays in the ink tokens. The
-pairs were checked for color-vision separation on the cluster face; re-check before changing them.
+The cluster is dark in both themes. Its colors are the `gauge-*` tokens in `index.css`: the signal
+orange is the value set on the emulator, cyan the scan tool's read-back (always with its triangle
+shape and a label), amber and red are reserved for zones and lamps, and text stays in the ink
+tokens. The pairs were checked for color-vision separation on the cluster face; re-check before
+changing them. A focused gauge brightens with the `*-focus` ink and tick tokens; keyboard focus
+adds a thin `focus-ring` circle on the dial, never a box around the gauge.
+
+## Color
+
+Every color is an `oklch()` token in `index.css`: `:root` holds light, `.dark` holds dark, and the
+theme follows the `.dark` class on `<html>`. A `.dark` class on a subtree (the cluster in a light
+window) makes everything inside it dark. Shell surfaces are `window`, `toolbar`, `pane`,
+`pane-sunken` and `separator`; `signal` is the one accent, for needles, the active state and primary
+actions. Use `text-signal` for icons and short emphasis, never body text. Focus uses `ring`, a
+neutral, not the signal.

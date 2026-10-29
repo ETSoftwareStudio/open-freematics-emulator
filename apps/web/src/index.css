@@ -3,19 +3,30 @@
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));
 
+/*
+ * One OKLCH system: neutrals sit on the icon's ember hue (50) at chroma <= 0.01, one signal orange,
+ * and status colours at matched lightness and chroma. Values come from a script that checks WCAG,
+ * APCA, sRGB gamut and colour-vision separation; re-run it before changing a lightness.
+ */
 :root {
   --control-radius: 0.5rem;
-  /* The instrument cluster is a dark dashboard in both themes. Data colors validated on its face. */
-  --gauge-face: #111214;
-  --gauge-bezel: #1c1e21;
-  --gauge-track: #1f2d42;
-  --gauge-tick: #52555c;
-  --gauge-ink: #f4f4f5;
-  --gauge-ink-muted: #a1a1aa;
-  --gauge-set: #3987e5;
-  --gauge-readback: #199e70;
-  --gauge-warning: #fab219;
-  --gauge-critical: #d03b3b;
+  /* The instrument cluster is a dark dashboard in both themes. */
+  --gauge-face: oklch(0.15 0.004 50);
+  --gauge-bezel: oklch(0.225 0.006 50);
+  --gauge-track: oklch(0.28 0.008 50);
+  --gauge-tick: oklch(0.48 0.008 50);
+  --gauge-ink: oklch(0.935 0.006 50);
+  --gauge-ink-muted: oklch(0.75 0.01 50);
+  /* Focus brightens the dial instead of boxing it: +0.10 L, same hue and chroma. */
+  --gauge-tick-focus: oklch(0.58 0.008 50);
+  --gauge-ink-muted-focus: oklch(0.85 0.01 50);
+  --gauge-ink-focus: oklch(0.99 0.003 50);
+  /* Set is the signal orange; readback is its complement so the pair survives every CVD type. */
+  --gauge-set: oklch(0.69 0.18 48);
+  --gauge-readback: oklch(0.8 0.115 210);
+  /* Kept apart from the orange by hue and lightness: amber lighter and yellower, red darker. */
+  --gauge-warning: oklch(0.84 0.16 86);
+  --gauge-critical: oklch(0.58 0.215 23);
 }
 
 @theme {
@@ -30,9 +41,24 @@
   --text-2xs--line-height: calc(1 / 0.6875);
   --text-3xs: 0.625rem;
   --text-3xs--line-height: calc(0.875 / 0.625);
-  --inset-shadow-control-highlight: 0 1px rgb(255 255 255 / 16%);
-  --inset-shadow-control-pressed: 0 1px rgb(0 0 0 / 8%);
+  --inset-shadow-control-highlight: 0 1px oklch(1 0 0 / 16%);
+  --inset-shadow-control-pressed: 0 1px oklch(0 0 0 / 8%);
   --color-zinc-25: oklch(99.2% 0 0);
+  --color-window: var(--window);
+  --color-toolbar: var(--toolbar);
+  --color-pane: var(--pane);
+  --color-pane-sunken: var(--pane-sunken);
+  --color-raised: var(--raised);
+  --color-hover: var(--hover);
+  --color-row-selected: var(--row-selected);
+  --color-separator: var(--separator);
+  --color-cluster-rim: var(--cluster-rim);
+  --color-signal: var(--signal);
+  --color-signal-foreground: var(--signal-foreground);
+  --color-focus-ring: var(--focus-ring);
+  --color-selection: var(--selection);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-disabled-foreground: var(--disabled-foreground);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-warning-surface: var(--warning-surface);
@@ -41,8 +67,10 @@
   --color-error-surface: var(--error-surface);
   --color-success-foreground: var(--success-foreground);
   --color-success: var(--success);
+  --color-success-surface: var(--success-surface);
   --color-info-foreground: var(--info-foreground);
   --color-info: var(--info);
+  --color-info-surface: var(--info-surface);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive: var(--destructive);
   --color-ring: var(--ring);
@@ -52,7 +80,7 @@
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted: var(--muted);
-  --color-placeholder: var(--muted-foreground);
+  --color-placeholder: var(--subtle-foreground);
   --color-secondary-label: var(--muted-foreground);
   --color-icon-muted: var(--muted-foreground);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -70,8 +98,11 @@
   --color-gauge-bezel: var(--gauge-bezel);
   --color-gauge-track: var(--gauge-track);
   --color-gauge-tick: var(--gauge-tick);
+  --color-gauge-tick-focus: var(--gauge-tick-focus);
   --color-gauge-ink: var(--gauge-ink);
+  --color-gauge-ink-focus: var(--gauge-ink-focus);
   --color-gauge-ink-muted: var(--gauge-ink-muted);
+  --color-gauge-ink-muted-focus: var(--gauge-ink-muted-focus);
   --color-gauge-set: var(--gauge-set);
   --color-gauge-readback: var(--gauge-readback);
   --color-gauge-warning: var(--gauge-warning);
@@ -83,73 +114,130 @@
   --radius-2xl: calc(var(--radius) + 8px);
 }
 
+/*
+ * Theme values: :root is light, .dark is dark. The aliases below are declared on both so a .dark
+ * subtree (the cluster in a light window) re-resolves them; a var() resolves where it's declared.
+ */
+:root,
+.dark {
+  --background: var(--window);
+  --card: var(--pane);
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --primary: var(--signal);
+  --primary-foreground: var(--signal-foreground);
+  --secondary: var(--raised);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--pane-sunken);
+  --accent: var(--hover);
+  --accent-foreground: var(--foreground);
+  --destructive-foreground: var(--error-foreground);
+  --ring: var(--focus-ring);
+  --contrast-muted-foreground: var(--muted-foreground);
+  --app-scrollbar-thumb: var(--scrollbar);
+  --app-scrollbar-thumb-hover: var(--scrollbar-hover);
+  --code-background: var(--pane-sunken);
+}
+
 :root {
   color-scheme: light;
   --radius: 0.5rem;
-  --background: var(--color-zinc-25);
-  --foreground: var(--color-zinc-900);
-  --card: var(--color-white);
-  --card-foreground: var(--color-zinc-900);
-  --popover: var(--color-white);
-  --popover-foreground: var(--color-zinc-900);
-  --primary: oklch(0.488 0.217 264);
-  --primary-foreground: var(--color-white);
-  --secondary: var(--color-zinc-50);
-  --secondary-foreground: var(--color-zinc-800);
-  --muted: var(--color-zinc-50);
-  --muted-foreground: var(--color-zinc-500);
-  --accent: var(--color-zinc-100);
-  --accent-foreground: var(--color-zinc-900);
-  --error: var(--color-red-500);
-  --error-foreground: var(--color-red-700);
-  --error-surface: color-mix(in srgb, var(--error) 8%, transparent);
-  --destructive: var(--error);
-  --destructive-foreground: var(--error-foreground);
-  --border: var(--color-zinc-200);
-  --input: var(--color-zinc-300);
-  --ring: var(--primary);
-  --info: var(--color-blue-500);
-  --info-foreground: var(--color-blue-700);
-  --success: var(--color-emerald-500);
-  --success-foreground: var(--color-emerald-700);
-  --warning: var(--color-amber-500);
-  --warning-foreground: var(--color-amber-700);
-  --warning-surface: color-mix(in srgb, var(--warning) 8%, transparent);
-  --code-background: color-mix(in srgb, var(--card) 90%, var(--background));
+  --separator: oklch(0.83 0.006 50);
+  --pane-sunken: oklch(0.935 0.005 50);
+  --toolbar: oklch(0.94 0.005 50);
+  --window: oklch(0.96 0.004 50);
+  --pane: oklch(0.985 0.003 50);
+  --popover: oklch(0.995 0.002 50);
+  --raised: oklch(0.995 0.002 50);
+  --hover: oklch(0.915 0.006 50);
+  --row-selected: oklch(0.91 0.04 48);
+  --border: oklch(0.885 0.006 50);
+  --input: oklch(0.82 0.008 50);
+  /* The dark cluster sits in a light window behind a dark lip, like a dash bezel. */
+  --cluster-rim: oklch(0.32 0.008 50);
+  --cluster-shadow: inset 0 1px 3px oklch(0 0 0 / 50%);
+  --foreground: oklch(0.22 0.008 50);
+  --muted-foreground: oklch(0.43 0.01 50);
+  --subtle-foreground: oklch(0.52 0.01 50);
+  --disabled-foreground: oklch(0.69 0.008 50);
+  /* Lower L than dark so it keeps 3:1 on light surfaces; icons and large text, never body. */
+  --signal: oklch(0.62 0.165 48);
+  --signal-foreground: oklch(0.17 0.02 45);
+  --focus-ring: oklch(0.52 0.01 50);
+  --selection: oklch(0.87 0.07 48);
+  --scrollbar: oklch(0.78 0.008 50);
+  --scrollbar-hover: oklch(0.68 0.008 50);
+  --success: oklch(0.58 0.115 150);
+  --success-foreground: oklch(0.46 0.088 150);
+  --success-surface: oklch(0.945 0.026 150);
+  --warning: oklch(0.58 0.115 85);
+  --warning-foreground: oklch(0.46 0.088 85);
+  --warning-surface: oklch(0.945 0.026 85);
+  --error: oklch(0.58 0.115 22);
+  --error-foreground: oklch(0.46 0.088 22);
+  --error-surface: oklch(0.945 0.026 22);
+  --info: oklch(0.58 0.115 240);
+  --info-foreground: oklch(0.46 0.088 240);
+  --info-surface: oklch(0.945 0.026 240);
+  /* Deeper than --error so white button text keeps 4.5:1. */
+  --destructive: oklch(0.58 0.19 25);
+}
 
-  @variant dark {
-    color-scheme: dark;
-    --background: #000;
-    --foreground: var(--color-neutral-100);
-    --card: color-mix(in srgb, var(--color-neutral-950) 97%, var(--color-white));
-    --card-foreground: var(--color-neutral-100);
-    --popover: color-mix(in srgb, var(--color-neutral-950) 97%, var(--color-white));
-    --popover-foreground: var(--color-neutral-100);
-    --primary: oklch(0.571 0.21 264);
-    --secondary: --alpha(var(--color-white) / 3%);
-    --secondary-foreground: var(--color-neutral-100);
-    --muted: --alpha(var(--color-white) / 3%);
-    --muted-foreground: var(--color-neutral-400);
-    --accent: --alpha(var(--color-white) / 4%);
-    --accent-foreground: var(--color-neutral-100);
-    --error: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
-    --error-foreground: var(--color-red-400);
-    --error-surface: color-mix(in srgb, var(--error) 16%, transparent);
-    --border: --alpha(var(--color-white) / 8%);
-    --input: --alpha(var(--color-white) / 11%);
-    --info-foreground: var(--color-blue-400);
-    --success-foreground: var(--color-emerald-400);
-    --warning-foreground: var(--color-amber-400);
-    --warning-surface: color-mix(in srgb, var(--warning) 16%, transparent);
-  }
+.dark {
+  color-scheme: dark;
+  --separator: oklch(0.11 0.003 50);
+  --pane-sunken: oklch(0.15 0.004 50);
+  --window: oklch(0.185 0.005 50);
+  --pane: oklch(0.205 0.005 50);
+  --toolbar: oklch(0.23 0.006 50);
+  --popover: oklch(0.255 0.006 50);
+  --raised: oklch(0.29 0.007 50);
+  --hover: oklch(0.33 0.008 50);
+  --row-selected: oklch(0.3 0.045 48);
+  --border: oklch(0.285 0.006 50);
+  --input: oklch(0.36 0.008 50);
+  --cluster-rim: oklch(0.11 0.003 50);
+  --cluster-shadow: inset 0 1px 2px oklch(0 0 0 / 40%);
+  --foreground: oklch(0.935 0.006 50);
+  --muted-foreground: oklch(0.775 0.01 50);
+  --subtle-foreground: oklch(0.66 0.01 50);
+  --disabled-foreground: oklch(0.5 0.008 50);
+  --signal: oklch(0.69 0.18 48);
+  --signal-foreground: oklch(0.17 0.02 45);
+  --focus-ring: oklch(0.62 0.01 50);
+  --selection: oklch(0.42 0.09 48);
+  --scrollbar: oklch(0.4 0.008 50);
+  --scrollbar-hover: oklch(0.5 0.008 50);
+  --success: oklch(0.76 0.13 150);
+  --success-foreground: oklch(0.82 0.095 150);
+  --success-surface: oklch(0.255 0.035 150);
+  --warning: oklch(0.76 0.13 85);
+  --warning-foreground: oklch(0.82 0.095 85);
+  --warning-surface: oklch(0.255 0.035 85);
+  --error: oklch(0.76 0.13 22);
+  --error-foreground: oklch(0.82 0.095 22);
+  --error-surface: oklch(0.255 0.035 22);
+  --info: oklch(0.76 0.13 240);
+  --info-foreground: oklch(0.82 0.095 240);
+  --info-surface: oklch(0.255 0.035 240);
+  --destructive: oklch(0.58 0.19 25);
 }
 
 @layer base {
   * {
     @apply border-border;
   }
+  html {
+    accent-color: var(--signal);
+    caret-color: var(--signal);
+    scrollbar-color: var(--scrollbar) transparent;
+  }
   body {
     @apply bg-background font-sans text-foreground antialiased;
+  }
+  ::selection {
+    background-color: var(--selection);
+    color: var(--foreground);
   }
   :where(svg.lucide[stroke-width="2"]) {
     stroke-width: 1.75;
@@ -159,7 +247,7 @@
 /* Menus and popovers float over the dark cluster, so they need their own opaque surface. */
 @utility dropdown-glass {
   border: 1px solid var(--border);
-  background-color: color-mix(in srgb, var(--popover) 94%, transparent);
+  background-color: color-mix(in oklch, var(--popover) 94%, transparent);
   backdrop-filter: blur(16px) saturate(1.4);
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
 }
