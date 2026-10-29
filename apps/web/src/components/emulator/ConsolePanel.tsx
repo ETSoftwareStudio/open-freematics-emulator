@@ -1,3 +1,4 @@
+import type { TrafficEntry } from "@fme/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { ChevronDownIcon, Trash2Icon } from "lucide-react";
@@ -29,10 +30,13 @@ const formatTime = (at: number) =>
 export function ConsolePanel({
   title = "Console",
   description = "AT commands to the MK2 and what the scan tool reads",
+  highlight,
   onHide,
 }: {
   title?: string;
   description?: string;
+  /** Lines to tint, e.g. the selected PID's requests and answers. */
+  highlight?: (entry: TrafficEntry) => boolean;
   onHide?: () => void;
 }) {
   const { state } = useEmulatorState();
@@ -118,7 +122,13 @@ export function ConsolePanel({
           </p>
         ) : null}
         {traffic.map((entry) => (
-          <div key={entry.sequence} className="flex gap-3 px-3 leading-[19px]">
+          <div
+            key={entry.sequence}
+            className={cn(
+              "flex gap-3 px-3 leading-[19px]",
+              highlight?.(entry) === true && "bg-row-selected",
+            )}
+          >
             <span className="shrink-0 text-muted-foreground">{formatTime(entry.at)}</span>
             <span
               className={cn(
