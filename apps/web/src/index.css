@@ -275,34 +275,3 @@
     app-region: no-drag;
   }
 }
-
-/* provisional shell tokens: replaced by the color system */
-:root {
-  --window: oklch(97% 0.003 106);
-  --toolbar: oklch(93.3% 0.004 106);
-  --pane: oklch(98.8% 0.001 0);
-  --pane-sunken: oklch(95.1% 0.004 106);
-  --separator: oklch(86.6% 0.005 107);
-  --signal: oklch(63.4% 0.197 38);
-  --signal-foreground: oklch(0% 0 0);
-
-  @variant dark {
-    --window: oklch(18.6% 0.002 0);
-    --toolbar: oklch(23% 0.004 107);
-    --pane: oklch(20.4% 0.002 0);
-    --pane-sunken: oklch(14.4% 0.002 107);
-    --separator: oklch(0% 0 0);
-    --signal: oklch(68.2% 0.211 38);
-    --signal-foreground: oklch(0% 0 0);
-  }
-}
-
-@theme inline {
-  --color-window: var(--window);
-  --color-toolbar: var(--toolbar);
-  --color-pane: var(--pane);
-  --color-pane-sunken: var(--pane-sunken);
-  --color-separator: var(--separator);
-  --color-signal: var(--signal);
-  --color-signal-foreground: var(--signal-foreground);
-}

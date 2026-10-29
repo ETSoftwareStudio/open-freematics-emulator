@@ -28,8 +28,8 @@ const IS_MAC = process.platform === "darwin";
 const TOOLBAR_HEIGHT = 52;
 // These mirror the web app's --toolbar and --window tokens and its foreground, per theme.
 const CHROME = {
-  light: { window: "#f5f5f3", toolbar: "#e9e9e6", symbols: "#3d3d3a" },
-  dark: { window: "#131312", toolbar: "#1d1d1b", symbols: "#ecebe6" },
+  light: { window: "#f4f1ef", toolbar: "#eeeae8", symbols: "#1e1a17" },
+  dark: { window: "#151211", toolbar: "#1f1c1a", symbols: "#ede8e6" },
 };
 const chromeColors = () => (nativeTheme.shouldUseDarkColors ? CHROME.dark : CHROME.light);
 const titleBarOverlay = () => ({
@@ -57,7 +57,15 @@ const startServer = (port: number) =>
   new Promise<string>((resolve, reject) => {
     const child = NodeChildProcess.spawn(
       process.execPath,
-      [SERVER_ENTRY, "--port", String(port), "--web-root", WEB_ROOT],
+      [
+        SERVER_ENTRY,
+        "--port",
+        String(port),
+        "--web-root",
+        WEB_ROOT,
+        "--data-dir",
+        app.getPath("userData"),
+      ],
       { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "pipe"] },
     );
     server = child;
