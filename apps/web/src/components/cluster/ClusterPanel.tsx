@@ -207,7 +207,7 @@ export function ClusterPanel({ className }: { className?: string }) {
               label="Check engine"
               lit={state.dtcs["03"].length > 0}
               tone="warning"
-              href="#trouble-codes"
+              href="#inspector-diagnostics"
             />
             <Lamp
               icon="coolant"

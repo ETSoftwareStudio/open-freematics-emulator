@@ -86,7 +86,7 @@ export function InspectorGroup({
     <Collapsible.Root
       open={open || filter !== ""}
       onOpenChange={setOpen}
-      render={<section aria-label={title} />}
+      render={<section id={`inspector-${id}`} aria-label={title} />}
       className={cn("border-b last:border-b-0", className)}
     >
       <Collapsible.Trigger className="group flex h-7 w-full cursor-default select-none items-center gap-1.25 ps-1.5 pe-2.5 text-start font-semibold text-foreground text-xs outline-none focus-visible:bg-accent">
