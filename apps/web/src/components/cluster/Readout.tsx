@@ -6,7 +6,7 @@ import { cn } from "~/lib/utils";
 import { formatPidValue, readingMatches } from "../emulator/pidControl";
 import { type GaugeRange, type GaugeZone, valueFraction, zoneAt } from "./gaugeGeometry";
 import { useGaugeControl } from "./useGaugeControl";
-import { ValueEditor } from "./ValueEditor";
+import { GaugeNumber } from "./ValueEditor";
 
 const NO_ZONES: ReadonlyArray<GaugeZone> = [];
 const ZONE_TEXT = { warning: "text-gauge-warning", critical: "text-gauge-critical" };
@@ -40,7 +40,7 @@ export function Readout({
       return range.min + ((event.clientX - box.left) / box.width) * (range.max - range.min);
     },
   });
-  const { shown, formatted, dragging } = control;
+  const { shown, dragging, ghost } = control;
   const tone = zoneAt(zones, shown);
   const readbackMatches = reading !== undefined && readingMatches(definition, value, reading);
 
@@ -51,23 +51,18 @@ export function Readout({
         <code className="ms-1 font-mono">{definition.id}</code>
       </p>
       <div className="flex h-7.5 items-center gap-2">
-        {control.editing ? (
-          <ValueEditor {...control.editor} className="h-7 text-2xl" />
-        ) : (
-          <button
-            type="button"
-            title="Type a value"
-            aria-label={`${definition.name}: ${formatted} ${definition.unit}. Type a value`}
-            onClick={control.startEditing}
-            className={cn(
-              "-ms-1 flex h-7 min-w-0 cursor-text items-baseline rounded-sm border border-transparent border-dashed px-1 font-instrument text-2xl text-gauge-ink tabular-nums leading-none outline-none transition-colors hover:border-gauge-tick focus-visible:border-focus-ring focus-visible:border-solid group-focus-within/readout:text-gauge-ink-focus",
-              tone !== undefined && ZONE_TEXT[tone],
-            )}
-          >
-            {formatted}
-            <span className="ms-1 font-sans text-gauge-ink-muted text-xs">{definition.unit}</span>
-          </button>
-        )}
+        <GaugeNumber
+          control={control}
+          steppers="after"
+          className="-ms-1 min-w-0"
+          numberClassName="h-7 px-1 text-2xl"
+          buttonClassName={cn(
+            "group-focus-within/readout:text-gauge-ink-focus",
+            tone !== undefined && ZONE_TEXT[tone],
+          )}
+        >
+          <span className="ms-0.5 font-sans text-gauge-ink-muted text-xs">{definition.unit}</span>
+        </GaugeNumber>
         {reading === undefined ? null : (
           <span
             className="ms-auto flex shrink-0 items-center gap-1 text-2xs text-gauge-ink-muted tabular-nums"
@@ -98,6 +93,13 @@ export function Readout({
             style={{ width: `${valueFraction(shown, range) * 100}%` }}
           />
         </div>
+        {ghost === null ? null : (
+          <span
+            aria-hidden
+            className="absolute inset-y-0 -translate-x-1/2 border-gauge-ink-muted border-l-2 border-dotted"
+            style={{ left: `${valueFraction(ghost, range) * 100}%` }}
+          />
+        )}
         {reading === undefined ? null : (
           <span
             aria-hidden

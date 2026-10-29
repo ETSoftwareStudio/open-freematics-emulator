@@ -17,7 +17,7 @@ import {
   subValueToAngle,
 } from "./gaugeGeometry";
 import { svgPoint, useGaugeControl } from "./useGaugeControl";
-import { GaugeHint, ValueEditor } from "./ValueEditor";
+import { GaugeHint, GaugeNumber } from "./ValueEditor";
 
 const { center: C, subRadius: R } = DIAL;
 // The sub-gauge's own SVG shows this window of the parent dial, so both share one coordinate space.
@@ -63,7 +63,7 @@ export function SubGauge({
       return subAngleToValue((Math.atan2(point.y - C, point.x - C) * 180) / Math.PI, range);
     },
   });
-  const { shown, formatted, dragging } = control;
+  const { shown, dragging, ghost } = control;
   const angle = subValueToAngle(shown, range);
   const low = polar(C, R, SUB_START_ANGLE);
   const high = polar(C, R, SUB_END_ANGLE);
@@ -143,6 +143,23 @@ export function SubGauge({
               <title>{`Scan tool read ${formatPidValue(definition, reading.value)} ${definition.unit}`}</title>
             </polygon>
           )}
+          {ghost === null ? null : (
+            <line
+              aria-hidden
+              x1={C + R - 9}
+              y1={C}
+              x2={C + R + 9}
+              y2={C}
+              className="stroke-gauge-ink-muted"
+              style={{
+                transform: `rotate(${subValueToAngle(ghost, range)}deg)`,
+                transformOrigin: `${C}px ${C}px`,
+              }}
+              strokeWidth={2.5}
+              strokeDasharray="0 4.5"
+              strokeLinecap="round"
+            />
+          )}
           <line
             x1={C + R - 7}
             y1={C}
@@ -159,24 +176,14 @@ export function SubGauge({
         </svg>
       </div>
 
-      <div
+      <GaugeNumber
+        control={control}
         style={{ top: cqw(C + 129) }}
-        className="absolute left-1/2 flex -translate-1/2 items-baseline gap-[1cqw] whitespace-nowrap text-[max(0.625rem,3.8cqw)] text-gauge-ink-muted transition-colors group-focus-within/sub:text-gauge-ink-muted-focus"
+        className="absolute left-1/2 -translate-1/2 gap-[1cqw] whitespace-nowrap text-[max(0.625rem,3.8cqw)] text-gauge-ink-muted transition-colors group-focus-within/sub:text-gauge-ink-muted-focus"
+        numberClassName="h-[1.5em] px-[0.25em]"
+        buttonClassName="group-focus-within/sub:text-gauge-ink-focus"
       >
-        {control.editing ? (
-          <ValueEditor {...control.editor} className="h-[1.4em] text-[1em]" />
-        ) : (
-          <button
-            type="button"
-            title="Type a value"
-            aria-label={`${definition.name}: ${formatted} ${definition.unit}. Type a value`}
-            onClick={control.startEditing}
-            className="cursor-text rounded-sm border border-transparent border-dashed px-[0.25em] font-instrument text-gauge-ink tabular-nums outline-none transition-colors hover:border-gauge-tick focus-visible:border-focus-ring focus-visible:border-solid group-focus-within/sub:text-gauge-ink-focus"
-          >
-            {formatted}
-            <span className="ms-[0.2em] text-gauge-ink-muted">{definition.unit}</span>
-          </button>
-        )}
+        <span>{definition.unit}</span>
         {label}
         {reading === undefined ? null : (
           <span
@@ -195,7 +202,7 @@ export function SubGauge({
             )}
           </span>
         )}
-      </div>
+      </GaugeNumber>
 
       <GaugeHint
         definition={definition}

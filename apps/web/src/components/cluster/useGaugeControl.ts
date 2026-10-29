@@ -1,8 +1,9 @@
-import type { PidDefinition } from "@fme/shared/pids";
+import { type PidDefinition, clampPidValue } from "@fme/shared/pids";
 import type * as React from "react";
 import { useRef, useState } from "react";
 import { formatPidValue, usePidControl } from "../emulator/pidControl";
 import { type GaugeRange, keyedValue, snapToStep } from "./gaugeGeometry";
+import { type EditorExit, exitTarget, ghostValue, parseTyped, stepValue } from "./valueEditing";
 
 /** Pointer movement below this many pixels is a click: it focuses the gauge without moving it. */
 const DRAG_THRESHOLD = 4;
@@ -13,6 +14,8 @@ export const svgPoint = (svg: SVGSVGElement | null, event: React.PointerEvent) =
   if (matrix == null) return null;
   return new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
 };
+
+export type GaugeControl = ReturnType<typeof useGaugeControl>;
 
 /** The shared behaviour of a cluster control: drag, arrow keys, and click-to-type. */
 export function useGaugeControl({
@@ -32,20 +35,46 @@ export function useGaugeControl({
   const { shown, dragging, change, commit } = usePidControl(definition, value);
   const sliderRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-  const [editing, setEditing] = useState(false);
+  // The text being typed, and the value to restore on Escape.
+  const [edit, setEdit] = useState<{ text: string; original: number } | null>(null);
 
   const pointerValue = (event: React.PointerEvent) => {
     const next = valueAtPointer(event);
     return next === null ? shown : snapToStep(next, range, step);
   };
   const formatted = formatPidValue(definition, shown);
+  const parsed = edit === null ? null : parseTyped(edit.text);
+  const typed = parsed === null ? null : clampPidValue(definition, parsed);
+  const startEditing = () => setEdit({ text: formatted, original: shown });
+
+  /** Applies a step at once, like a drag: the needle moves, the value is sent, the text follows. */
+  const stepFrom = (from: number, steps: number) => {
+    const next = clampPidValue(definition, stepValue(from, steps, range, step));
+    change(next);
+    setEdit((current) => current && { ...current, text: formatPidValue(definition, next) });
+    return next;
+  };
+
+  const finish = (exit: EditorExit) => {
+    if (edit === null) return;
+    const target = exitTarget(exit, { typed, original: edit.original, shown, live: dragging });
+    if (target !== null) {
+      // Through the draft, so a key released on the slider can't commit the stale one.
+      change(target);
+      void commit(target);
+    } else if (dragging) void commit(shown);
+    setEdit(null);
+    if (exit !== "blur") sliderRef.current?.focus();
+  };
 
   return {
+    definition,
     shown,
     formatted,
     dragging,
-    editing,
-    startEditing: () => setEditing(true),
+    editing: edit !== null,
+    ghost: edit === null ? null : ghostValue(typed, shown, range),
+    startEditing,
     slider: {
       ref: sliderRef,
       role: "slider",
@@ -58,7 +87,7 @@ export function useGaugeControl({
       onKeyDown: (event: React.KeyboardEvent) => {
         if (event.key === "Enter") {
           event.preventDefault();
-          setEditing(true);
+          startEditing();
           return;
         }
         const next = keyedValue(event.key, event.shiftKey, shown, range, step);
@@ -101,14 +130,12 @@ export function useGaugeControl({
     },
     editor: {
       definition,
-      value: shown,
-      step,
-      onSubmit: (typed: number) => void commit(typed),
-      /** Leaves edit mode; `refocus` hands focus back to the slider after Enter or Escape. */
-      onDone: (refocus: boolean) => {
-        setEditing(false);
-        if (refocus) sliderRef.current?.focus();
-      },
+      text: edit?.text ?? "",
+      invalid: typed === null,
+      onTextChange: (text: string) => setEdit((current) => current && { ...current, text }),
+      onStep: (steps: number) => stepFrom(typed ?? shown, steps),
+      onExit: finish,
     },
+    stepper: { definition, step, from: typed ?? shown, stepFrom },
   };
 }

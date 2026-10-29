@@ -43,7 +43,10 @@ handlers. An effect that stays states why with
 [`components/cluster`](../../apps/web/src/components/cluster) draws the dashboard: SVG gauges that
 are also controls (drag the needle, arrow keys with Shift for ten steps, PageUp/PageDown,
 Home/End, click the number to type) and warning lights. The sub-gauges inside the dials and the
-readouts under them share that behaviour through `useGaugeControl`.
+readouts under them share that behaviour through `useGaugeControl`. Typing happens in place: `GaugeNumber`
+gives the button and the input one class string so nothing moves, its steppers and Up/Down send
+at once like a drag, typed text only previews as a dotted ghost until Enter, and Escape restores
+the value from before editing (`valueEditing.ts` holds the tested rules).
 Dial geometry lives in `gaugeGeometry.ts` and is unit-tested; a gauge's display range and zones are
 UI choices and may be narrower than what the PID can encode, so the PID list stays the place for
 exact values. PID controls share `usePidControl` for drafts and send de-duplication.

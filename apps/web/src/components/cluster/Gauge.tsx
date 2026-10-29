@@ -21,7 +21,7 @@ import {
   zoneAt,
 } from "./gaugeGeometry";
 import { svgPoint, useGaugeControl } from "./useGaugeControl";
-import { GaugeHint, ValueEditor } from "./ValueEditor";
+import { GaugeHint, GaugeNumber } from "./ValueEditor";
 
 const { size: SIZE, center: C, radius: R } = DIAL;
 
@@ -83,7 +83,7 @@ export function Gauge({
       return angleToValue((Math.atan2(point.y - C, point.x - C) * 180) / Math.PI, range);
     },
   });
-  const { shown, formatted, dragging } = control;
+  const { shown, dragging, ghost } = control;
 
   const { ticks, step: tickStep } = majorTicks(range, majorTickCount);
   const minor = minorTicks(ticks, tickStep, minorDivisions);
@@ -221,6 +221,27 @@ export function Gauge({
               </polygon>
             )}
 
+            {ghost === null ? null : (
+              <g
+                aria-hidden
+                className="stroke-gauge-ink-muted"
+                style={{
+                  transform: `rotate(${valueToAngle(ghost, range)}deg)`,
+                  transformOrigin: `${C}px ${C}px`,
+                }}
+              >
+                <line
+                  x1={C + 110}
+                  y1={C}
+                  x2={C + R - 12}
+                  y2={C}
+                  strokeWidth={3}
+                  strokeDasharray="0 7"
+                  strokeLinecap="round"
+                />
+                <line x1={C + R - 14} y1={C} x2={C + R + 10} y2={C} strokeWidth={3} />
+              </g>
+            )}
             <g
               className={cn(
                 "drop-shadow-[0_0_2.5px_var(--gauge-set)]",
@@ -244,22 +265,12 @@ export function Gauge({
           </svg>
         </div>
 
-        {control.editing ? (
-          <ValueEditor
-            {...control.editor}
-            className="absolute top-[39.5cqw] left-1/2 h-[18.6cqw] -translate-x-1/2 text-[17cqw]"
-          />
-        ) : (
-          <button
-            type="button"
-            title="Type a value"
-            aria-label={`${definition.name}: ${formatted} ${definition.unit}. Type a value`}
-            onClick={control.startEditing}
-            className="absolute top-[39.5cqw] left-1/2 flex h-[18.6cqw] -translate-x-1/2 cursor-text items-center rounded-sm border border-transparent border-dashed px-[2.5cqw] font-instrument text-[18.6cqw] text-gauge-ink tabular-nums leading-none tracking-tight outline-none transition-colors hover:border-gauge-tick focus-visible:border-focus-ring focus-visible:border-solid group-focus-within/dial:border-gauge-tick group-focus-within/dial:text-gauge-ink-focus"
-          >
-            {formatted}
-          </button>
-        )}
+        <GaugeNumber
+          control={control}
+          className="absolute top-[39.5cqw] left-1/2 -translate-x-1/2"
+          numberClassName="h-[18.6cqw] px-[2.5cqw] text-[18.6cqw] tracking-tight"
+          buttonClassName="group-focus-within/dial:border-gauge-tick group-focus-within/dial:text-gauge-ink-focus"
+        />
 
         {reading === undefined ? null : (
           <p
