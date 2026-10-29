@@ -1,6 +1,15 @@
-/** Angles are SVG degrees: clockwise from 3 o'clock. Gauges sweep from 7:30 to 4:30. */
-export const START_ANGLE = 135;
-export const SWEEP = 270;
+/**
+ * Angles are SVG degrees: clockwise from 3 o'clock. Dials sweep 244° from lower left to lower
+ * right, leaving the gap at the bottom for a sub-gauge.
+ */
+export const START_ANGLE = 148;
+export const SWEEP = 244;
+/** Sub-gauges run left to right along the bottom gap, so their angle falls as the value rises. */
+export const SUB_START_ANGLE = 122;
+export const SUB_END_ANGLE = 58;
+
+/** Dial artwork in SVG user units: a 420 square, the scale at `radius`, sub-gauges at `subRadius`. */
+export const DIAL = { size: 420, center: 210, radius: 184, subRadius: 172 } as const;
 
 export interface GaugeRange {
   readonly min: number;
@@ -26,6 +35,19 @@ export const angleToValue = (angle: number, { min, max }: GaugeRange) => {
   const fromStart = (((angle - START_ANGLE) % 360) + 360) % 360;
   const swept = fromStart <= SWEEP ? fromStart : fromStart - SWEEP < 360 - fromStart ? SWEEP : 0;
   return min + (swept / SWEEP) * (max - min);
+};
+
+const SUB_SWEEP = SUB_START_ANGLE - SUB_END_ANGLE;
+
+export const subValueToAngle = (value: number, range: GaugeRange) =>
+  SUB_START_ANGLE - valueFraction(value, range) * SUB_SWEEP;
+
+/** A pointer beyond either end of the sub-gauge pegs it at that end. */
+export const subAngleToValue = (angle: number, { min, max }: GaugeRange) => {
+  // Normalised to [-90, 270) so the bottom of the dial is one unbroken interval.
+  const normalised = ((((angle + 90) % 360) + 360) % 360) - 90;
+  const clamped = Math.min(SUB_START_ANGLE, Math.max(SUB_END_ANGLE, normalised));
+  return min + ((SUB_START_ANGLE - clamped) / SUB_SWEEP) * (max - min);
 };
 
 export const polar = (center: number, radius: number, angle: number) => {
@@ -56,5 +78,41 @@ export const majorTicks = ({ min, max }: GaugeRange, target: number) => {
   return { step, ticks };
 };
 
+/** The ticks that split each major interval into `divisions` parts. */
+export const minorTicks = (ticks: ReadonlyArray<number>, step: number, divisions: number) =>
+  ticks
+    .slice(0, -1)
+    .flatMap((tick) =>
+      Array.from({ length: divisions - 1 }, (_, i) =>
+        Number((tick + (step * (i + 1)) / divisions).toFixed(6)),
+      ),
+    );
+
 export const zoneAt = (zones: ReadonlyArray<GaugeZone>, value: number) =>
   zones.find((zone) => value >= zone.min && value <= zone.max)?.tone;
+
+export const snapToStep = (value: number, { min, max }: GaugeRange, step: number) =>
+  Math.min(max, Math.max(min, Math.round(value / step) * step));
+
+/** Where a key moves a gauge: arrows step (Shift steps ten), pages a tenth, Home and End the ends. */
+export const keyedValue = (
+  key: string,
+  shiftKey: boolean,
+  value: number,
+  range: GaugeRange,
+  step: number,
+) => {
+  const nudge = shiftKey ? step * 10 : step;
+  const page = Math.max(step, (range.max - range.min) / 10);
+  const targets: Partial<Record<string, number>> = {
+    ArrowUp: value + nudge,
+    ArrowRight: value + nudge,
+    ArrowDown: value - nudge,
+    ArrowLeft: value - nudge,
+    PageUp: value + page,
+    PageDown: value - page,
+    Home: range.min,
+    End: range.max,
+  };
+  return targets[key];
+};

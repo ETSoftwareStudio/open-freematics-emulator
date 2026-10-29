@@ -21,8 +21,12 @@ export function EmulatorScreen({
   return (
     <div className="relative flex min-h-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div data-slot="cluster" className="min-h-0 flex-1 overflow-auto bg-gauge-face">
-          <ClusterPanel className="min-h-full rounded-none border-0" />
+        {/* The rim and inset sit outside the cluster's .dark subtree so they follow the window. */}
+        <div
+          data-slot="cluster"
+          className="flex min-h-0 flex-1 flex-col overflow-auto border-cluster-rim border-t bg-gauge-face shadow-(--cluster-shadow)"
+        >
+          <ClusterPanel className="flex-1" />
         </div>
         <ScenarioStrip />
         {consoleOpen ? (

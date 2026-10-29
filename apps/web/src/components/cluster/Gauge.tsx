@@ -1,12 +1,13 @@
 import type { PidReading } from "@fme/contracts";
 import { formatHexBytes } from "@fme/shared/atCommands";
-import { type PidDefinition, clampPidValue } from "@fme/shared/pids";
+import type { PidDefinition } from "@fme/shared/pids";
 import { TriangleAlertIcon } from "lucide-react";
 import type * as React from "react";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { cn } from "~/lib/utils";
-import { formatPidValue, readingMatches, usePidControl } from "../emulator/pidControl";
+import { formatPidValue, readingMatches } from "../emulator/pidControl";
 import {
+  DIAL,
   type GaugeRange,
   type GaugeZone,
   START_ANGLE,
@@ -14,26 +15,19 @@ import {
   angleToValue,
   arcPath,
   majorTicks,
+  minorTicks,
   polar,
-  valueFraction,
   valueToAngle,
   zoneAt,
 } from "./gaugeGeometry";
+import { svgPoint, useGaugeControl } from "./useGaugeControl";
+import { GaugeHint, ValueEditor } from "./ValueEditor";
 
-const CENTER = 100;
-const TRACK_RADIUS = 80;
-const END_ANGLE = START_ANGLE + SWEEP;
-const TRACK = arcPath(CENTER, TRACK_RADIUS, START_ANGLE, END_ANGLE);
-
-const FILL_TONE = {
-  normal: "stroke-gauge-set",
-  warning: "stroke-gauge-warning",
-  critical: "stroke-gauge-critical",
-};
+const { size: SIZE, center: C, radius: R } = DIAL;
 
 const NO_ZONES: ReadonlyArray<GaugeZone> = [];
-
-const ZONE_TONE = { warning: "stroke-gauge-warning", critical: "stroke-gauge-critical" };
+const ZONE_STROKE = { warning: "stroke-gauge-warning", critical: "stroke-gauge-critical" };
+const ZONE_FILL = { warning: "fill-gauge-warning", critical: "fill-gauge-critical" };
 
 export interface GaugeProps {
   readonly definition: PidDefinition;
@@ -44,256 +38,97 @@ export interface GaugeProps {
   /** Display range; may be narrower than the PID's encodable range. */
   readonly range: GaugeRange;
   readonly zones?: ReadonlyArray<GaugeZone>;
-  readonly label: string;
+  /** About this many numbered ticks. */
+  readonly majorTickCount: number;
+  /** Minor ticks split each numbered interval into this many parts. */
+  readonly minorDivisions: number;
   /** Tick labels are divided by this, e.g. 1000 for an rpm dial labelled 0–8. */
   readonly tickDivisor?: number;
+  /** A small caption above the number, e.g. "×1000 r/min". */
+  readonly scale?: string;
   /** Granularity of dragging and arrow keys. */
   readonly step?: number;
-  readonly size: "lg" | "sm";
   readonly className?: string;
+  /** A `SubGauge` drawn in the gap at the bottom of the dial. */
+  readonly children?: React.ReactNode;
 }
 
-/** Parses a typed value, tolerating digit grouping ("1,000") and stray spaces. */
-const parseTyped = (text: string) => {
-  const cleaned = text.replace(/[\s,]/g, "");
-  if (cleaned === "") return null;
-  const value = Number(cleaned);
-  return Number.isFinite(value) ? value : null;
-};
-
-// Stable, so React calls it once on mount rather than re-selecting on every keystroke.
-const selectOnMount = (input: HTMLInputElement | null) => input?.select();
-
-function ReadoutEditor({
-  definition,
-  value,
-  step,
-  onSubmit,
-  onDone,
-}: {
-  definition: PidDefinition;
-  value: number;
-  step: number;
-  onSubmit: (value: number) => void;
-  /** Leaves edit mode; `refocus` hands focus back to the dial after Enter or Escape. */
-  onDone: (refocus: boolean) => void;
-}) {
-  const [text, setText] = useState(String(value));
-  const invalid = parseTyped(text) === null;
-  return (
-    <input
-      ref={selectOnMount}
-      inputMode="decimal"
-      aria-label={`${definition.name} (${definition.unit})`}
-      aria-invalid={invalid}
-      value={text}
-      onChange={(event) => setText(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-          event.preventDefault();
-          const delta = (event.key === "ArrowUp" ? step : -step) * (event.shiftKey ? 10 : 1);
-          setText(String(clampPidValue(definition, (parseTyped(text) ?? value) + delta)));
-        } else if (event.key === "Escape") {
-          event.preventDefault();
-          onDone(true);
-        } else if (event.key === "Enter") {
-          event.preventDefault();
-          const typed = parseTyped(text);
-          if (typed === null) return;
-          onSubmit(typed);
-          onDone(true);
-        }
-      }}
-      onBlur={() => onDone(false)}
-      style={{ width: `${Math.max(text.length, 3) + 1}ch` }}
-      className="absolute left-1/2 top-[72.5cqw] h-[15cqw] -translate-x-1/2 rounded-md bg-gauge-bezel text-center font-semibold text-[13cqw] text-gauge-ink tabular-nums leading-none outline-none ring-2 ring-gauge-set aria-invalid:ring-gauge-critical"
-    />
-  );
-}
-
+/**
+ * A round dial that is also a slider. Its box is a container: everything inside is sized in `cqw`
+ * so the dial scales with the pane, and the SVG is drawn in `DIAL` units.
+ */
 export function Gauge({
   definition,
   value,
   reading,
   range,
   zones = NO_ZONES,
-  label,
+  majorTickCount,
+  minorDivisions,
   tickDivisor = 1,
+  scale,
   step = definition.step,
-  size,
   className,
+  children,
 }: GaugeProps) {
-  const { shown, dragging, change, commit } = usePidControl(definition, value);
   const svgRef = useRef<SVGSVGElement>(null);
-  const sliderRef = useRef<HTMLDivElement>(null);
-  // A click only focuses the dial (for arrow keys); the needle follows the pointer once it drags.
-  const dragStart = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-  const [editing, setEditing] = useState(false);
-  const large = size === "lg";
+  const control = useGaugeControl({
+    definition,
+    value,
+    range,
+    step,
+    valueAtPointer: (event) => {
+      const point = svgPoint(svgRef.current, event);
+      if (point === null) return null;
+      return angleToValue((Math.atan2(point.y - C, point.x - C) * 180) / Math.PI, range);
+    },
+  });
+  const { shown, formatted, dragging } = control;
 
-  const snap = (next: number) =>
-    Math.min(range.max, Math.max(range.min, Math.round(next / step) * step));
-  const valueAtPointer = (event: React.PointerEvent) => {
-    const box = svgRef.current?.getBoundingClientRect();
-    if (box === undefined) return shown;
-    const x = ((event.clientX - box.left) / box.width) * 200 - CENTER;
-    const y = ((event.clientY - box.top) / box.height) * 200 - CENTER;
-    return snap(angleToValue((Math.atan2(y, x) * 180) / Math.PI, range));
-  };
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      setEditing(true);
-      return;
-    }
-    const bigStep = Math.max(step, (range.max - range.min) / 10);
-    const next = {
-      ArrowUp: shown + step,
-      ArrowRight: shown + step,
-      ArrowDown: shown - step,
-      ArrowLeft: shown - step,
-      PageUp: shown + bigStep,
-      PageDown: shown - bigStep,
-      Home: range.min,
-      End: range.max,
-    }[event.key];
-    if (next === undefined) return;
-    event.preventDefault();
-    // Held keys repeat faster than the server echoes, so steps build on the draft until keyup.
-    change(snap(next));
-  };
-
-  const tone = zoneAt(zones, shown) ?? "normal";
-  const { ticks, step: tickStep } = majorTicks(range, large ? 8 : 4);
-  const minorTicks = large
-    ? ticks.slice(0, -1).map((tick) => tick + tickStep / 2)
-    : ([] as Array<number>);
-  const fraction = valueFraction(shown, range);
-  const needleAngle = valueToAngle(shown, range);
-  const formatted = formatPidValue(definition, shown);
+  const { ticks, step: tickStep } = majorTicks(range, majorTickCount);
+  const minor = minorTicks(ticks, tickStep, minorDivisions);
+  const crowded = ticks.length > 10;
   const readbackMatches = reading !== undefined && readingMatches(definition, value, reading);
 
   return (
-    <div className={cn("flex flex-col items-center", className)}>
-      <div className="@container relative w-full">
+    <div className={cn("@container relative pb-5", className)}>
+      <div className="group/dial contents">
         <div
-          ref={sliderRef}
-          role="slider"
-          tabIndex={0}
-          aria-label={definition.name}
-          aria-valuemin={range.min}
-          aria-valuemax={range.max}
-          aria-valuenow={shown}
-          aria-valuetext={`${formatted} ${definition.unit}`}
-          onKeyDown={onKeyDown}
-          onKeyUp={() => {
-            if (dragging) void commit(shown);
-          }}
-          onBlur={() => {
-            if (dragging) void commit(shown);
-          }}
-          className="w-full cursor-grab touch-none select-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-gauge-set active:cursor-grabbing"
+          {...control.slider}
+          className="group/slider block cursor-grab touch-none select-none rounded-full outline-none active:cursor-grabbing"
         >
           <svg
             ref={svgRef}
-            viewBox="0 0 200 200"
-            className="block w-full"
-            onPointerDown={(event) => {
-              event.currentTarget.setPointerCapture(event.pointerId);
-              dragStart.current = { x: event.clientX, y: event.clientY, moved: false };
-            }}
-            onPointerMove={(event) => {
-              const start = dragStart.current;
-              if (start === null || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-              if (!start.moved && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 4)
-                return;
-              start.moved = true;
-              change(valueAtPointer(event));
-            }}
-            onPointerUp={(event) => {
-              if (dragStart.current?.moved) void commit(valueAtPointer(event));
-              dragStart.current = null;
-            }}
-            onPointerCancel={() => {
-              if (dragStart.current?.moved) void commit(shown);
-              dragStart.current = null;
-            }}
+            viewBox={`0 0 ${SIZE} ${SIZE}`}
+            className="block w-full overflow-visible"
+            {...control.pointer}
           >
-            <circle cx={CENTER} cy={CENTER} r={98} className="fill-gauge-bezel" />
-            <circle cx={CENTER} cy={CENTER} r={94} className="fill-gauge-face" />
-
+            <circle
+              cx={C}
+              cy={C}
+              r={C - 10}
+              className="fill-none stroke-focus-ring opacity-0 group-focus-visible/slider:opacity-100"
+              strokeWidth={1.5}
+            />
+            <path
+              d={arcPath(C, R, START_ANGLE, START_ANGLE + SWEEP)}
+              className="fill-none stroke-gauge-track"
+              strokeWidth={1.5}
+            />
             {zones.map((zone) => (
               <path
                 key={`${zone.min}-${zone.tone}`}
-                d={arcPath(
-                  CENTER,
-                  TRACK_RADIUS + 10,
-                  valueToAngle(zone.min, range),
-                  valueToAngle(zone.max, range),
-                )}
-                className={cn("fill-none", ZONE_TONE[zone.tone])}
+                d={arcPath(C, R + 5, valueToAngle(zone.min, range), valueToAngle(zone.max, range))}
+                className={cn("fill-none", ZONE_STROKE[zone.tone])}
                 strokeWidth={3}
               />
             ))}
 
-            <path
-              d={TRACK}
-              className="fill-none stroke-gauge-track"
-              strokeWidth={large ? 8 : 12}
-              strokeLinecap="round"
-            />
-            {/* The fill is the track with a dash: dash lengths animate where path data can't. */}
-            {fraction > 0 ? (
-              <path
-                d={TRACK}
-                pathLength={100}
-                // A gap longer than the path keeps a second round cap from showing at the far end.
-                strokeDasharray={`${fraction * 100} 200`}
-                className={cn(
-                  "fill-none",
-                  FILL_TONE[tone],
-                  !dragging && "transition-[stroke-dasharray] duration-300 ease-out",
-                )}
-                strokeWidth={large ? 8 : 12}
-                strokeLinecap="round"
-              />
-            ) : null}
-
-            {ticks.map((tick) => {
+            {minor.map((tick) => {
               const angle = valueToAngle(tick, range);
-              const outer = polar(CENTER, TRACK_RADIUS - 8, angle);
-              const inner = polar(CENTER, TRACK_RADIUS - (large ? 16 : 14), angle);
-              const text = polar(CENTER, TRACK_RADIUS - 26, angle);
-              return (
-                <g key={tick}>
-                  <line
-                    x1={inner.x}
-                    y1={inner.y}
-                    x2={outer.x}
-                    y2={outer.y}
-                    className="stroke-gauge-ink-muted"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                  />
-                  {large ? (
-                    <text
-                      x={text.x}
-                      y={text.y}
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      className="fill-gauge-ink-muted font-sans"
-                      fontSize={11}
-                    >
-                      {Number((tick / tickDivisor).toFixed(2)).toLocaleString()}
-                    </text>
-                  ) : null}
-                </g>
-              );
-            })}
-            {minorTicks.map((tick) => {
-              const angle = valueToAngle(tick, range);
-              const outer = polar(CENTER, TRACK_RADIUS - 8, angle);
-              const inner = polar(CENTER, TRACK_RADIUS - 12, angle);
+              const outer = polar(C, R, angle);
+              const inner = polar(C, R - 7, angle);
+              const tone = zoneAt(zones, tick);
               return (
                 <line
                   key={tick}
@@ -301,31 +136,85 @@ export function Gauge({
                   y1={inner.y}
                   x2={outer.x}
                   y2={outer.y}
-                  className="stroke-gauge-tick"
-                  strokeWidth={1.5}
-                  strokeLinecap="round"
+                  className={cn(
+                    "transition-colors",
+                    tone === undefined
+                      ? "stroke-gauge-tick group-focus-within/dial:stroke-gauge-tick-focus"
+                      : ZONE_STROKE[tone],
+                  )}
+                  strokeWidth={1.2}
                 />
               );
             })}
+            {ticks.map((tick) => {
+              const angle = valueToAngle(tick, range);
+              const outer = polar(C, R, angle);
+              const inner = polar(C, R - 16, angle);
+              const label = polar(C, R - (crowded ? 38 : 36), angle);
+              const tone = zoneAt(zones, tick);
+              return (
+                <g key={tick}>
+                  <line
+                    x1={inner.x}
+                    y1={inner.y}
+                    x2={outer.x}
+                    y2={outer.y}
+                    className={cn(
+                      "transition-colors",
+                      tone === undefined
+                        ? "stroke-gauge-ink-muted group-focus-within/dial:stroke-gauge-ink-muted-focus"
+                        : ZONE_STROKE[tone],
+                    )}
+                    strokeWidth={2}
+                  />
+                  <text
+                    x={label.x}
+                    y={label.y}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    className={cn(
+                      "font-instrument tabular-nums transition-colors",
+                      tone === undefined
+                        ? "fill-gauge-ink-muted group-focus-within/dial:fill-gauge-ink-muted-focus"
+                        : ZONE_FILL[tone],
+                    )}
+                    fontSize={crowded ? 18 : 22}
+                  >
+                    {Number((tick / tickDivisor).toFixed(2)).toLocaleString()}
+                  </text>
+                </g>
+              );
+            })}
 
+            {scale === undefined ? null : (
+              <text
+                x={C}
+                y={C - 64}
+                textAnchor="middle"
+                className="fill-gauge-ink-muted font-instrument transition-colors group-focus-within/dial:fill-gauge-ink-muted-focus"
+                fontSize={16}
+              >
+                {scale}
+              </text>
+            )}
             <text
-              x={CENTER}
-              y={128}
+              x={C}
+              y={C + 56}
               textAnchor="middle"
-              className="fill-gauge-ink-muted font-sans uppercase tracking-wider"
-              fontSize={large ? 9 : 12}
+              className="fill-gauge-ink-muted font-instrument transition-colors group-focus-within/dial:fill-gauge-ink-muted-focus"
+              fontSize={18}
             >
-              {label}
+              {definition.unit}
             </text>
 
             {reading === undefined ? null : (
               <polygon
-                points={`${CENTER + TRACK_RADIUS + 5},${CENTER} ${CENTER + 97},${CENTER - 6} ${CENTER + 97},${CENTER + 6}`}
+                points={`${C + R + 4},${C} ${C + R + 18},${C - 7} ${C + R + 18},${C + 7}`}
                 className="fill-gauge-readback stroke-gauge-face transition-transform duration-300 ease-out"
                 strokeWidth={2}
                 style={{
                   transform: `rotate(${valueToAngle(reading.value, range)}deg)`,
-                  transformOrigin: `${CENTER}px ${CENTER}px`,
+                  transformOrigin: `${C}px ${C}px`,
                 }}
               >
                 <title>{`Scan tool read ${formatPidValue(definition, reading.value)} ${definition.unit}`}</title>
@@ -333,79 +222,69 @@ export function Gauge({
             )}
 
             <g
-              className={cn(!dragging && "transition-transform duration-300 ease-out")}
+              className={cn(
+                "drop-shadow-[0_0_2.5px_var(--gauge-set)]",
+                !dragging && "transition-transform duration-300 ease-out",
+              )}
               style={{
-                transform: `rotate(${needleAngle}deg)`,
-                transformOrigin: `${CENTER}px ${CENTER}px`,
+                transform: `rotate(${valueToAngle(shown, range)}deg)`,
+                transformOrigin: `${C}px ${C}px`,
               }}
             >
               <line
-                x1={CENTER - 10}
-                y1={CENTER}
-                x2={CENTER + TRACK_RADIUS - 4}
-                y2={CENTER}
-                className="stroke-gauge-ink"
-                strokeWidth={large ? 3 : 4}
+                x1={C + 108}
+                y1={C}
+                x2={C + R + 2}
+                y2={C}
+                className="stroke-gauge-set"
+                strokeWidth={4}
                 strokeLinecap="round"
               />
             </g>
-            <circle
-              cx={CENTER}
-              cy={CENTER}
-              r={large ? 7 : 9}
-              className="fill-gauge-bezel stroke-gauge-ink"
-              strokeWidth={2}
-            />
-
-            <text
-              x={CENTER}
-              y={186}
-              textAnchor="middle"
-              className="fill-gauge-ink-muted font-sans"
-              fontSize={large ? 10 : 12}
-            >
-              {definition.unit}
-            </text>
           </svg>
         </div>
-        {editing ? (
-          <ReadoutEditor
-            definition={definition}
-            value={shown}
-            step={step}
-            onSubmit={(typed) => void commit(typed)}
-            onDone={(refocus) => {
-              setEditing(false);
-              if (refocus) sliderRef.current?.focus();
-            }}
+
+        {control.editing ? (
+          <ValueEditor
+            {...control.editor}
+            className="absolute top-[39.5cqw] left-1/2 h-[18.6cqw] -translate-x-1/2 text-[17cqw]"
           />
         ) : (
           <button
             type="button"
             title="Type a value"
             aria-label={`${definition.name}: ${formatted} ${definition.unit}. Type a value`}
-            onClick={() => setEditing(true)}
-            className="absolute left-1/2 top-[72.5cqw] h-[15cqw] -translate-x-1/2 cursor-text rounded-md px-[0.25em] font-semibold text-[13cqw] text-gauge-ink tabular-nums leading-none outline-none transition-colors hover:bg-gauge-ink/10 focus-visible:ring-2 focus-visible:ring-gauge-set"
+            onClick={control.startEditing}
+            className="absolute top-[39.5cqw] left-1/2 flex h-[18.6cqw] -translate-x-1/2 cursor-text items-center rounded-sm border border-transparent border-dashed px-[2.5cqw] font-instrument text-[18.6cqw] text-gauge-ink tabular-nums leading-none tracking-tight outline-none transition-colors hover:border-gauge-tick focus-visible:border-focus-ring focus-visible:border-solid group-focus-within/dial:border-gauge-tick group-focus-within/dial:text-gauge-ink-focus"
           >
             {formatted}
           </button>
         )}
+
+        {reading === undefined ? null : (
+          <p
+            className="absolute top-[72cqw] left-1/2 flex -translate-1/2 items-center gap-1 whitespace-nowrap text-2xs text-gauge-ink-muted tabular-nums"
+            title={`Scan tool read ${formatHexBytes(reading.raw)}`}
+          >
+            <span aria-hidden className="text-gauge-readback">
+              ▲
+            </span>
+            <span className="@max-[17rem]:sr-only">Scan tool</span>
+            {formatPidValue(definition, reading.value)}
+            {readbackMatches ? null : (
+              <TriangleAlertIcon className="size-3 text-gauge-warning" aria-label="differs" />
+            )}
+          </p>
+        )}
+
+        <GaugeHint
+          definition={definition}
+          step={step}
+          target="number"
+          className="absolute inset-x-0 bottom-0 h-5 group-focus-within/dial:opacity-100"
+        />
       </div>
-      {reading === undefined ? null : (
-        <p
-          className="flex items-center gap-1 text-2xs text-gauge-ink-muted tabular-nums"
-          title={`Scan tool read ${formatHexBytes(reading.raw)}`}
-        >
-          <span aria-hidden className="text-gauge-readback">
-            ▲
-          </span>
-          {large ? "Scan tool " : null}
-          {formatPidValue(definition, reading.value)}
-          {readbackMatches ? null : (
-            <TriangleAlertIcon className="size-3 text-gauge-warning" aria-label="differs" />
-          )}
-        </p>
-      )}
+      {children}
     </div>
   );
 }

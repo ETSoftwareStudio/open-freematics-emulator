@@ -1,58 +1,58 @@
 import type { PidId } from "@fme/contracts";
 import { type PidDefinition, findPid } from "@fme/shared/pids";
-import { BatteryWarningIcon, FuelIcon, KeyRoundIcon, ThermometerIcon } from "lucide-react";
-import type * as React from "react";
 import { cn } from "~/lib/utils";
 import { useEmulatorState, useReaderState } from "~/rpc/hooks";
-import { Panel } from "../emulator/Panel";
-import { Gauge, type GaugeProps } from "./Gauge";
-import { type GaugeTone, type GaugeZone, zoneAt } from "./gaugeGeometry";
+import { Gauge } from "./Gauge";
+import { type GaugeRange, type GaugeTone, type GaugeZone, zoneAt } from "./gaugeGeometry";
+import { Readout } from "./Readout";
+import { SubGauge } from "./SubGauge";
 
-interface DialSpec extends Pick<GaugeProps, "range" | "zones" | "label" | "tickDivisor" | "step"> {
+interface Spec {
   readonly definition: PidDefinition;
+  readonly range: GaugeRange;
+  readonly zones?: ReadonlyArray<GaugeZone>;
+  readonly step?: number;
 }
 
-const dial = (id: string, spec: Omit<DialSpec, "definition">): DialSpec => {
+const spec = (id: string, rest: Omit<Spec, "definition">): Spec => {
   const definition = findPid(id);
   if (definition === undefined) throw new Error(`PID ${id} is not in the catalog`);
-  return { definition, ...spec };
+  return { definition, ...rest };
 };
 
 const zone = (min: number, max: number, tone: GaugeTone): GaugeZone => ({ min, max, tone });
 
-const TACHOMETER = dial("010C", {
-  label: "rpm × 1000",
+const TACHOMETER = spec("010C", {
   range: { min: 0, max: 8000 },
   zones: [zone(6500, 8000, "critical")],
-  tickDivisor: 1000,
   step: 50,
 });
-const SPEEDOMETER = dial("010D", { label: "Speed", range: { min: 0, max: 260 } });
-const COOLANT = dial("0105", {
-  label: "Coolant",
+const SPEEDOMETER = spec("010D", { range: { min: 0, max: 260 } });
+const COOLANT = spec("0105", {
   range: { min: 40, max: 130 },
   zones: [zone(105, 115, "warning"), zone(115, 130, "critical")],
 });
-const FUEL = dial("012F", {
-  label: "Fuel",
+const FUEL = spec("012F", {
   range: { min: 0, max: 100 },
   zones: [zone(0, 10, "critical"), zone(10, 20, "warning")],
 });
-const BATTERY = dial("0142", {
-  label: "Battery",
+const VOLTAGE = spec("0142", {
   range: { min: 8, max: 16 },
   zones: [zone(8, 11.5, "critical"), zone(11.5, 12.2, "warning"), zone(14.8, 16, "warning")],
   step: 0.1,
 });
-const SECONDARY = [
-  dial("0111", { label: "Throttle", range: { min: 0, max: 100 } }),
-  dial("0104", { label: "Load", range: { min: 0, max: 100 } }),
-  BATTERY,
-  dial("015C", {
+const READOUTS = [
+  { label: "Throttle", ...spec("0111", { range: { min: 0, max: 100 } }) },
+  { label: "Engine load", ...spec("0104", { range: { min: 0, max: 100 } }) },
+  { label: "Module voltage", ...VOLTAGE },
+  {
     label: "Oil temp",
-    range: { min: 40, max: 160 },
-    zones: [zone(130, 145, "warning"), zone(145, 160, "critical")],
-  }),
+    ...spec("015C", {
+      range: { min: 40, max: 160 },
+      zones: [zone(130, 145, "warning"), zone(145, 160, "critical")],
+    }),
+  },
+  { label: "Fuel rate", ...spec("015E", { range: { min: 0, max: 30 }, step: 0.1 }) },
 ];
 const ODOMETER = "0131" as PidId;
 
@@ -61,58 +61,94 @@ export const CLUSTER_PIDS: ReadonlyArray<PidId> = [
   SPEEDOMETER,
   COOLANT,
   FUEL,
-  ...SECONDARY,
-].map((spec) => spec.definition.id);
+  ...READOUTS,
+].map((s) => s.definition.id);
 
-const LAMP_TONE = { warning: "text-gauge-warning", critical: "text-gauge-critical" };
+/** Dash telltales in one 24px outline style; lucide has no engine or coolant symbol. */
+const TELLTALE = {
+  ignition: (
+    <>
+      <circle cx="7.5" cy="12" r="4" />
+      <path d="M11.5 12H21M18 12v3.5M21 12v2.5" />
+    </>
+  ),
+  engine: (
+    <>
+      <path d="M2.5 10.5v5M2.5 13H5M5 9.5h3.5V7.5h6v2h2.5l2 2H21v4.5h-1.5L17 18.5H9.5L7 16H5z" />
+      <path d="M10 5.5h3" />
+    </>
+  ),
+  coolant: (
+    <>
+      <path d="M12 3.5v9.2M12 6h3M12 9h3" />
+      <circle cx="12" cy="15" r="2.4" />
+      <path d="M3 20.5c1.5-1 3-1 4.5 0s3 1 4.5 0 3-1 4.5 0 3 1 4.5 0" />
+    </>
+  ),
+  charging: (
+    <>
+      <rect x="3" y="7.5" width="18" height="11.5" rx="1" />
+      <path d="M6.5 7.5V5.5h3v2M14.5 7.5V5.5h3v2M6.5 13.5h3.5M14 13.5h3.5M15.75 11.75v3.5" />
+    </>
+  ),
+  fuel: (
+    <>
+      <path d="M4.5 20V5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v15M3 20h12M6.5 6.5h5v4h-5z" />
+      <path d="M13.5 9.5H15l2 2v6a1.5 1.5 0 0 0 3 0V9l-2.5-2.5" />
+    </>
+  ),
+};
 
-/** Same outline style as the lucide icons beside it; lucide has no engine. */
-function EngineIcon(props: React.ComponentProps<"svg">) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      {...props}
-    >
-      <path d="M2 10v6M2 13h3M5 9h3V7h6v2h2l2 2h1V9h3v9h-3v-2h-1l-2 3H9l-4-3z" />
-    </svg>
-  );
-}
+const LAMP_TONE = {
+  on: "text-success",
+  warning: "text-gauge-warning",
+  critical: "text-gauge-critical",
+};
 
 function Lamp({
-  icon: Icon,
+  icon,
   label,
   lit,
   tone,
   href,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: keyof typeof TELLTALE;
   label: string;
   lit: boolean;
-  tone?: GaugeTone;
+  tone: keyof typeof LAMP_TONE;
   /** Where the lamp's settings live; the lamp becomes a link there. */
   href?: string;
 }) {
   const content = (
     <>
-      <Icon className={cn("size-4", lit && tone !== undefined && LAMP_TONE[tone])} />
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.7}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+        className={cn("size-6.5 transition-colors", lit ? LAMP_TONE[tone] : "text-gauge-track")}
+      >
+        {TELLTALE[icon]}
+      </svg>
       {label}
       <span className="sr-only">{lit ? "on" : "off"}</span>
     </>
   );
+  const className = "flex flex-col items-center gap-1.5 text-center leading-tight";
   return (
-    <li className={cn("flex items-center gap-1.5", lit ? "text-gauge-ink" : "text-gauge-tick")}>
+    <li className={cn("text-2xs", lit ? "text-gauge-ink" : "text-gauge-ink-muted")}>
       {href === undefined ? (
-        content
+        <span className={className}>{content}</span>
       ) : (
         <a
           href={href}
-          className="flex items-center gap-1.5 rounded-sm underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-gauge-set"
+          className={cn(
+            className,
+            "rounded-sm underline-offset-2 outline-none hover:underline focus-visible:ring-1 focus-visible:ring-focus-ring",
+          )}
         >
           {content}
         </a>
@@ -128,95 +164,87 @@ export function ClusterPanel({ className }: { className?: string }) {
 
   // With the ignition off nothing answers, so last readings would be stale.
   const readingBack = reader?.connection._tag === "connected" && reader.vehicleResponding;
-  const valueOf = ({ definition }: DialSpec) =>
-    state.pids[definition.id] ?? definition.defaultValue;
-  const gauge = (spec: DialSpec, size: GaugeProps["size"], className: string) => (
-    <Gauge
-      key={spec.definition.id}
-      {...spec}
-      value={valueOf(spec)}
-      reading={readingBack ? reader.readings[spec.definition.id] : undefined}
-      size={size}
-      className={className}
-    />
-  );
-  const inCritical = (spec: DialSpec) => zoneAt(spec.zones ?? [], valueOf(spec)) === "critical";
+  const valueOf = ({ definition }: Spec) => state.pids[definition.id] ?? definition.defaultValue;
+  const live = <S extends Spec>(s: S) => ({
+    ...s,
+    value: valueOf(s),
+    reading: readingBack ? reader.readings[s.definition.id] : undefined,
+  });
+  const toneOf = (s: Spec) => zoneAt(s.zones ?? [], valueOf(s));
   const odometer = state.pids[ODOMETER] ?? 0;
+  // Container units: the dash is a size container, so dials fit its width and its height.
+  const dial = "w-[min(37.5cqw,calc(100cqh-1.75rem))] shrink-0";
 
   return (
-    <Panel.Root className={cn("border-gauge-bezel bg-gauge-face text-gauge-ink", className)}>
-      <Panel.Header className="flex-wrap border-gauge-bezel">
-        <Panel.Title>Instrument cluster</Panel.Title>
-        <p className="text-gauge-ink-muted text-xs">
-          Drag a needle, use the arrow keys, or click a number to type it.
-        </p>
-        {readingBack ? (
-          <Panel.Actions className="text-gauge-ink-muted text-xs">
-            <span className="flex items-center gap-1.5">
-              <span aria-hidden className="h-1 w-3 rounded-full bg-gauge-set" />
-              Set on emulator
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span aria-hidden className="text-gauge-readback">
-                ▲
-              </span>
-              Read by scan tool
-            </span>
-          </Panel.Actions>
-        ) : null}
-      </Panel.Header>
-      <Panel.Body
-        className={cn("flex flex-col gap-6 transition-opacity", !state.ignition && "opacity-50")}
+    <section
+      aria-label="Instrument cluster"
+      className={cn("dark @container flex flex-col text-gauge-ink", className)}
+    >
+      <div
+        className={cn(
+          "flex min-h-60 flex-1 items-center justify-center gap-[1.5cqw] px-3.5 pt-2 transition-opacity [container-type:size]",
+          !state.ignition && "opacity-50",
+        )}
       >
-        <div className="grid items-center gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,10rem)_minmax(0,1fr)]">
-          {gauge(TACHOMETER, "lg", "mx-auto w-full max-w-80")}
-          <div className="mx-auto grid w-full max-w-80 grid-cols-2 gap-4 md:grid-cols-1">
-            {gauge(COOLANT, "sm", "mx-auto w-full max-w-36")}
-            {gauge(FUEL, "sm", "mx-auto w-full max-w-36")}
-          </div>
-          {gauge(SPEEDOMETER, "lg", "mx-auto w-full max-w-80")}
+        <Gauge
+          {...live(TACHOMETER)}
+          majorTickCount={8}
+          minorDivisions={4}
+          tickDivisor={1000}
+          scale="×1000 r/min"
+          className={dial}
+        >
+          <SubGauge {...live(COOLANT)} ends={["C", "H"]} label="coolant" />
+        </Gauge>
+        <div className="@container flex min-w-0 max-w-60 flex-1 flex-col items-center gap-[min(9cqh,3rem)]">
+          <ul
+            className="grid grid-cols-2 justify-center gap-x-1 gap-y-3.5 @[12rem]:grid-cols-3 [&>li]:w-15.5"
+            aria-label="Warning lamps"
+          >
+            <Lamp icon="ignition" label="Ignition" lit={state.ignition} tone="on" />
+            <Lamp
+              icon="engine"
+              label="Check engine"
+              lit={state.dtcs["03"].length > 0}
+              tone="warning"
+              href="#trouble-codes"
+            />
+            <Lamp
+              icon="coolant"
+              label="Coolant"
+              lit={toneOf(COOLANT) === "critical"}
+              tone="critical"
+            />
+            <Lamp
+              icon="charging"
+              label="Charging"
+              lit={toneOf(VOLTAGE) === "critical"}
+              tone="critical"
+            />
+            <Lamp icon="fuel" label="Low fuel" lit={toneOf(FUEL) !== undefined} tone="warning" />
+          </ul>
+          <p className="flex flex-col items-center gap-0.5 text-center">
+            <span className="font-instrument text-2xl text-gauge-ink tabular-nums leading-none">
+              {odometer.toLocaleString()}
+              <span className="ms-1 font-sans text-gauge-ink-muted text-xs">km</span>
+            </span>
+            <span className="text-2xs text-gauge-ink-muted">since codes cleared</span>
+          </p>
         </div>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          {SECONDARY.map((spec) => gauge(spec, "sm", "mx-auto w-full max-w-36"))}
-        </div>
-      </Panel.Body>
-      <footer className="flex flex-wrap items-center gap-x-6 gap-y-2 border-gauge-bezel border-t px-4 py-3 text-xs">
-        <ul className="flex flex-wrap items-center gap-x-5 gap-y-2" aria-label="Warning lights">
-          <Lamp
-            icon={KeyRoundIcon}
-            label={state.ignition ? "Ignition on" : "Ignition off"}
-            lit={state.ignition}
-          />
-          <Lamp
-            icon={EngineIcon}
-            label="Check engine"
-            lit={state.dtcs["03"].length > 0}
-            tone="warning"
-            href="#trouble-codes"
-          />
-          <Lamp
-            icon={ThermometerIcon}
-            label="Coolant temp"
-            lit={inCritical(COOLANT)}
-            tone="critical"
-          />
-          <Lamp
-            icon={BatteryWarningIcon}
-            label="Charging"
-            lit={inCritical(BATTERY)}
-            tone="critical"
-          />
-          <Lamp
-            icon={FuelIcon}
-            label="Low fuel"
-            lit={zoneAt(FUEL.zones ?? [], valueOf(FUEL)) !== undefined}
-            tone="warning"
-          />
-        </ul>
-        <p className="ms-auto font-mono text-gauge-ink-muted tabular-nums">
-          {odometer.toLocaleString()} km since codes cleared
-        </p>
-      </footer>
-    </Panel.Root>
+        <Gauge {...live(SPEEDOMETER)} majorTickCount={13} minorDivisions={2} className={dial}>
+          <SubGauge {...live(FUEL)} ends={["E", "F"]} label="fuel" fill />
+        </Gauge>
+      </div>
+      <div
+        className={cn(
+          "@container grid shrink-0 grid-cols-5 border-gauge-track border-t transition-opacity",
+          !state.ignition && "opacity-50",
+        )}
+      >
+        {READOUTS.map((s) => (
+          <Readout key={s.definition.id} {...live(s)} />
+        ))}
+      </div>
+    </section>
   );
 }
