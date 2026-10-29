@@ -18,10 +18,10 @@ function AutocompleteInput({
   showTrigger?: boolean;
   showClear?: boolean;
   startAddon?: React.ReactNode;
-  size?: "sm" | "default" | "lg" | number;
+  size?: "sm" | "compact" | "default" | "lg" | number;
   ref?: React.Ref<HTMLInputElement>;
 }) {
-  const sizeValue = (size ?? "default") as "sm" | "default" | "lg" | number;
+  const sizeValue = size ?? "default";
 
   return (
     <div className="relative not-has-[>*.w-full]:w-fit w-full text-foreground has-disabled:opacity-64">

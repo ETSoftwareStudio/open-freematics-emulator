@@ -1,5 +1,5 @@
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field";
-import { MinusIcon, PlusIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, MinusIcon, PlusIcon } from "lucide-react";
 import * as React from "react";
 import { cn } from "~/lib/utils";
 
@@ -76,6 +76,26 @@ export function NumberFieldIncrement({
   );
 }
 
+/** Up and down arrows stacked at the field's trailing edge, for desktop-density fields. */
+export function NumberFieldStepper({ className, ...props }: React.ComponentProps<"span">) {
+  const button =
+    "flex min-h-0 flex-1 cursor-default items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-disabled:opacity-40";
+  return (
+    <span
+      className={cn("flex w-3.5 shrink-0 flex-col border-input border-s", className)}
+      data-slot="number-field-stepper"
+      {...props}
+    >
+      <NumberFieldPrimitive.Increment className={cn(button, "rounded-se-[inherit]")}>
+        <ChevronUpIcon className="size-2.5" />
+      </NumberFieldPrimitive.Increment>
+      <NumberFieldPrimitive.Decrement className={cn(button, "rounded-ee-[inherit]")}>
+        <ChevronDownIcon className="size-2.5" />
+      </NumberFieldPrimitive.Decrement>
+    </span>
+  );
+}
+
 export function NumberFieldInput({
   className,
   ...props
@@ -83,7 +103,7 @@ export function NumberFieldInput({
   return (
     <NumberFieldPrimitive.Input
       className={cn(
-        "h-8.5 in-data-[size=lg]:h-9.5 in-data-[size=sm]:h-7.5 w-full min-w-0 grow bg-transparent in-data-[size=sm]:px-[calc(--spacing(2.5)-1px)] px-[calc(--spacing(3)-1px)] text-center tabular-nums in-data-[size=lg]:leading-9.5 in-data-[size=sm]:leading-7.5 leading-8.5 outline-none [transition:background-color_5000000s_ease-in-out_0s] sm:h-7.5 sm:in-data-[size=lg]:h-8.5 sm:in-data-[size=sm]:h-6.5 sm:in-data-[size=lg]:leading-8.5 sm:in-data-[size=sm]:leading-8.5 sm:leading-7.5",
+        "h-8.5 in-data-[size=lg]:h-9.5 in-data-[size=sm]:h-7.5 w-full min-w-0 grow bg-transparent in-data-[size=sm]:px-[calc(--spacing(2.5)-1px)] px-[calc(--spacing(3)-1px)] text-center tabular-nums in-data-[size=lg]:leading-9.5 in-data-[size=sm]:leading-7.5 leading-8.5 outline-none [transition:background-color_5000000s_ease-in-out_0s] sm:h-7.5 sm:in-data-[size=lg]:h-8.5 sm:in-data-[size=sm]:h-6.5 sm:in-data-[size=lg]:leading-8.5 sm:in-data-[size=sm]:leading-6.5 sm:leading-7.5",
         className,
       )}
       data-slot="number-field-input"
