@@ -18,9 +18,10 @@ theme tokens and what classes can't express. Theme-only rules use `@variant dark
 
 ## Composition
 
-[`Panel.tsx`](../../apps/web/src/components/emulator/Panel.tsx) exports one object of slots
-(`Root`, `Header`, `Title`, `Description`, `Actions`, `Body`). Slots own their classes and spread
-the rest of their props. New panels compose those slots instead of copying markup.
+Screens are built from the window primitives in
+[`components/shell`](../../apps/web/src/components/shell) (see Window shell below). Each primitive
+owns its classes and spreads the rest of its props, so features compose them instead of copying
+markup.
 
 ## State
 
@@ -68,9 +69,8 @@ neutral, not the signal.
 The app is a desktop window: `html` and `body` never scroll, panes scroll on their own.
 [`components/shell`](../../apps/web/src/components/shell) holds the window's primitives at desktop
 density (11–13px text, 26–28px controls): `Toolbar`, `Infobar`, `StatusBar`, `Pane` and its
-header, `Drawer`, `Inspector` with `InspectorGroup`, `PropertyRow` and `SegmentedControl`. Build
-screens from them rather than from `Panel`, which is for cards. A `Panel` inside an inspector
-group sits in `Panel.Embedded`, which drops its frame and title.
+header, `Drawer`, `Inspector` with `InspectorGroup`, `PropertyRow` and `SegmentedControl`. There
+are no cards: group settings in inspector groups and data in panes.
 
 In the desktop app the toolbar is the title bar: it carries the `drag-region` utility, and
 `useWindowChrome()` says where the platform's window buttons sit. The renderer is sandboxed, so

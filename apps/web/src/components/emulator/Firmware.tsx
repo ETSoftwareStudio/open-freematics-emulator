@@ -4,7 +4,6 @@ import {
   parseFirmwareInfo,
 } from "@fme/shared/firmware";
 import { SquareArrowOutUpRightIcon } from "lucide-react";
-import { PropertyRow } from "~/components/shell/PropertyRow";
 import { Button } from "~/components/ui/button";
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "~/components/ui/popover";
 import { useEmulatorState } from "~/rpc/hooks";
@@ -70,37 +69,5 @@ export function UpdateInstructions() {
         </p>
       </PopoverPopup>
     </Popover>
-  );
-}
-
-/** The firmware facts for an inspector group. */
-export function FirmwareDetails() {
-  const firmware = useFirmware();
-  if (!firmware.connected) {
-    return <p className="py-1 text-muted-foreground">Connect to read the firmware version.</p>;
-  }
-  const { info } = firmware;
-  return (
-    <>
-      <PropertyRow label="Version">
-        {info.version !== null ? `V${info.version}` : (firmware.banner ?? "Unknown")}
-        {firmware.simulated ? " · simulated" : ""}
-      </PropertyRow>
-      {info.buildLabel !== null ? <PropertyRow label="Built">{info.buildLabel}</PropertyRow> : null}
-      {info.serial !== null ? (
-        <PropertyRow label="Serial">
-          <code className="font-mono">{info.serial}</code>
-        </PropertyRow>
-      ) : null}
-      <p className="pt-1 text-muted-foreground">
-        {firmware.simulated
-          ? "The simulated device models a V1.2 unit; connect real hardware to check for updates."
-          : firmware.updatable
-            ? `V${LATEST_OFFICIAL_FIRMWARE.version} is available.`
-            : info.version !== null
-              ? "Up to date."
-              : null}
-      </p>
-    </>
   );
 }
