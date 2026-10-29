@@ -34,9 +34,10 @@ describe("EmulatorSession", () => {
         expect(state.connection).toMatchObject({
           _tag: "connected",
           device: { banner: SimulatedDevice.SIMULATED_BANNER },
-          // V1.2 rejects pending/permanent codes and CALID; the probe must leave no codes behind.
-          capabilities: { dtcModes: ["03"], calibrationId: false },
+          unsent: [],
         });
+        // V1.2 rejects pending/permanent codes and CALID; the probe must leave no codes behind.
+        expect(state.capabilities).toEqual({ dtcModes: ["03"], calibrationId: false });
         expect(firmware.storedDtcs).toEqual([]);
         expect(state.vin).toBe("1HGCD5654VA061985");
         expect(state.calibrationId).toBeNull();
@@ -117,6 +118,37 @@ describe("EmulatorSession", () => {
       }),
     );
   });
+});
+
+describe("EmulatorSession offline edits", () => {
+  it.effect("reports staged edits the firmware can't take and keeps its capabilities", () =>
+    Effect.gen(function* () {
+      const session = yield* EmulatorSession.EmulatorSession;
+      const { firmware } = yield* SimulatedDevice.SimulatedDevice;
+      expect((yield* stateOf).capabilities).toBeNull();
+      yield* session.setDtcs("03", ["P0300"] as Array<DtcCode>);
+      yield* session.setDtcs("07", ["P0420"] as Array<DtcCode>);
+      yield* session.setDtcs("0A", ["P0171", "P0174"] as Array<DtcCode>);
+      yield* session.setCalibrationId("CAL-1234");
+      yield* session.connect({ _tag: "simulated" });
+
+      const state = yield* stateOf;
+      expect(state.connection).toMatchObject({
+        _tag: "connected",
+        unsent: [
+          { _tag: "dtcs", mode: "07", codes: ["P0420"] },
+          { _tag: "dtcs", mode: "0A", codes: ["P0171", "P0174"] },
+          { _tag: "calibrationId", calibrationId: "CAL-1234" },
+        ],
+      });
+      expect(state.dtcs).toEqual({ "03": ["P0300"], "07": [], "0A": [] });
+      expect(state.calibrationId).toBeNull();
+      expect(firmware.storedDtcs).toEqual(["P0300"]);
+
+      yield* session.disconnect;
+      expect((yield* stateOf).capabilities).toEqual({ dtcModes: ["03"], calibrationId: false });
+    }).pipe(Effect.provide(TestLayer)),
+  );
 });
 
 const testPreset = (pids: Record<string, number>): Preset => ({

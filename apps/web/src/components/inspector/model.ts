@@ -1,4 +1,10 @@
-import type { EmulatorState, ReadinessMonitor, ReadinessMonitorId } from "@fme/contracts";
+import type {
+  DeviceCapabilities,
+  DtcMode,
+  ReadinessMonitor,
+  ReadinessMonitorId,
+  UnsentEdit,
+} from "@fme/contracts";
 import type { DtcEntry } from "@fme/shared/dtcs";
 import { LATEST_OFFICIAL_FIRMWARE } from "@fme/shared/firmware";
 import { PIDS, type PidDefinition, type PidGroup } from "@fme/shared/pids";
@@ -73,8 +79,58 @@ export const readinessProgress = (
   };
 };
 
-/** What the connected firmware accepts; null while disconnected, when edits wait for connect. */
-export const connectedCapabilities = (state: EmulatorState) =>
-  state.connection._tag === "connected" ? state.connection.capabilities : null;
+export type FirmwareFeature = DtcMode | "calibrationId";
+export type FirmwareSupport = "supported" | "unsupported" | "unknown";
 
-export const NEEDS_LATEST_FIRMWARE = `firmware V${LATEST_OFFICIAL_FIRMWARE.version}`;
+/**
+ * Whether the firmware takes a feature, from what it took on the last connect. Every firmware takes
+ * stored codes; anything else is unknown until the first connect, when V1.2 would drop it.
+ */
+export const firmwareSupport = (
+  capabilities: DeviceCapabilities | null,
+  feature: FirmwareFeature,
+): FirmwareSupport => {
+  if (feature === "03") return "supported";
+  if (capabilities === null) return "unknown";
+  const supported =
+    feature === "calibrationId"
+      ? capabilities.calibrationId
+      : capabilities.dtcModes.includes(feature);
+  return supported ? "supported" : "unsupported";
+};
+
+/**
+ * What a locked control says, and its tooltip. Freematics publishes no changelog: V1.2 rejecting
+ * these is observed, V1.3 having them is only inferred from strings in its image.
+ */
+export const firmwareLock = (support: FirmwareSupport, version: string | null) => {
+  switch (support) {
+    case "supported":
+      return null;
+    case "unknown":
+      return {
+        label: "Connect to check firmware support",
+        title: "The emulator's firmware is checked on connect. Some firmware rejects this setting.",
+      };
+    case "unsupported":
+      return {
+        label: version === null ? "Not on this firmware" : `Not supported by V${version}`,
+        title: `This firmware rejects the command. The official V${LATEST_OFFICIAL_FIRMWARE.version} image includes it, so updating may add it.`,
+      };
+  }
+};
+
+export const DTC_MODE_LABELS: Readonly<Record<DtcMode, string>> = {
+  "03": "Stored",
+  "07": "Pending",
+  "0A": "Permanent",
+};
+
+/** Why an edit staged while disconnected didn't reach the device. */
+export const unsentNote = (edit: UnsentEdit) => {
+  if (edit._tag === "calibrationId") {
+    return `Calibration ID ${edit.calibrationId} wasn't sent: this firmware doesn't support it.`;
+  }
+  const one = edit.codes.length === 1;
+  return `${DTC_MODE_LABELS[edit.mode]} ${one ? "code" : "codes"} ${edit.codes.join(", ")} ${one ? "wasn't" : "weren't"} sent: this firmware doesn't support Mode ${edit.mode}.`;
+};

@@ -118,8 +118,7 @@ const program = Effect.gen(function* () {
     "ATBUS CAN_29B_500K",
     "OK",
   );
-  const pending =
-    connected.connection._tag === "connected" ? connected.connection.capabilities : null;
+  const pending = connected.capabilities;
   const mode07 = yield* client(WS_METHODS.setDtcs, {
     mode: "07",
     codes: ["P0300"] as Array<DtcCode>,

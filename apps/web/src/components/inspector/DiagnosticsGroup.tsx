@@ -18,13 +18,9 @@ import {
 import { Button } from "~/components/ui/button";
 import { clearDtcsAtom, setDtcsAtom } from "~/rpc/atoms";
 import { useCommand, useEmulatorState } from "~/rpc/hooks";
-import {
-  NEEDS_LATEST_FIRMWARE,
-  connectedCapabilities,
-  filterGroupRows,
-  matchesDtcQuery,
-  pidWords,
-} from "./model";
+import { useFirmware } from "~/components/emulator/Firmware";
+import { FirmwareLockNote, UnsentNote } from "./FirmwareNotes";
+import { filterGroupRows, firmwareLock, firmwareSupport, matchesDtcQuery, pidWords } from "./model";
 import { CounterRow } from "./PidRow";
 
 const MODES: ReadonlyArray<{ mode: DtcMode; label: string; hint: string }> = [
@@ -68,10 +64,11 @@ export function DiagnosticsGroup() {
   const clearDtcs = useCommand(clearDtcsAtom);
   const [pickedMode, setMode] = useState<DtcMode>("03");
   const [draft, setDraft] = useState("");
+  const firmware = useFirmware();
   if (state === null) return null;
 
-  const capabilities = connectedCapabilities(state);
-  const supports = (mode: DtcMode) => capabilities === null || capabilities.dtcModes.includes(mode);
+  const supportOf = (mode: DtcMode) => firmwareSupport(state.capabilities, mode);
+  const supports = (mode: DtcMode) => supportOf(mode) === "supported";
   const mode = supports(pickedMode) ? pickedMode : "03";
   const codes = state.dtcs[mode];
   const stored = state.dtcs["03"].length;
@@ -79,8 +76,15 @@ export function DiagnosticsGroup() {
   const candidate = draft.trim().toUpperCase();
   const full = codes.length >= MAX_DTCS_PER_MODE;
   const canAdd = DTC_PATTERN.test(candidate) && !codes.includes(candidate as DtcCode) && !full;
-  const locked = MODES.filter((m) => !supports(m.mode)).map((m) => m.label.toLowerCase());
-  const lockedNote = `${locked.join(" and ").replace(/^./, (c) => c.toUpperCase())} need ${NEEDS_LATEST_FIRMWARE}`;
+  // Pending and permanent are known or unknown together, so one note covers both.
+  const lock =
+    MODES.map((m) => firmwareLock(supportOf(m.mode), firmware.info.version)).find(
+      (l) => l !== null,
+    ) ?? null;
+  const unsent =
+    state.connection._tag === "connected"
+      ? state.connection.unsent.filter((edit) => edit._tag === "dtcs")
+      : [];
 
   const allCodes = [...state.dtcs["03"], ...state.dtcs["07"], ...state.dtcs["0A"]];
   const wordsOf = (row: Row) => {
@@ -152,6 +156,10 @@ export function DiagnosticsGroup() {
               };
             })}
           />
+          {lock === null ? null : <FirmwareLockNote lock={lock} />}
+          {unsent.map((edit) => (
+            <UnsentNote key={edit.mode} edit={edit} />
+          ))}
 
           <ul
             className="flex flex-col divide-y rounded-md border bg-pane-sunken"
@@ -244,12 +252,6 @@ export function DiagnosticsGroup() {
 
           {full ? (
             <p className="text-subtle-foreground">Up to {MAX_DTCS_PER_MODE} codes per type.</p>
-          ) : null}
-          {locked.length > 0 ? (
-            <p className="flex items-center gap-1.25 text-subtle-foreground">
-              <LockIcon className="size-3 shrink-0" />
-              {lockedNote}
-            </p>
           ) : null}
         </div>
       ) : null}

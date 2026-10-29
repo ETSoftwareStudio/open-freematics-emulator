@@ -75,13 +75,20 @@ export const DeviceCapabilities = Schema.Struct({
 });
 export type DeviceCapabilities = typeof DeviceCapabilities.Type;
 
+/** An edit staged while disconnected that the firmware can't take, so connect didn't send it. */
+export const UnsentEdit = Schema.Union([
+  Schema.TaggedStruct("dtcs", { mode: DtcMode, codes: DtcList }),
+  Schema.TaggedStruct("calibrationId", { calibrationId: Schema.String }),
+]);
+export type UnsentEdit = typeof UnsentEdit.Type;
+
 export const Connection = Schema.Union([
   Schema.TaggedStruct("disconnected", {}),
   Schema.TaggedStruct("connecting", { target: ConnectTarget }),
   Schema.TaggedStruct("connected", {
     target: ConnectTarget,
     device: Schema.NullOr(DeviceInfo),
-    capabilities: DeviceCapabilities,
+    unsent: Schema.Array(UnsentEdit),
   }),
   Schema.TaggedStruct("failed", { target: ConnectTarget, reason: Schema.String }),
 ]);
@@ -93,6 +100,8 @@ export type Connection = typeof Connection.Type;
  */
 export const EmulatorState = Schema.Struct({
   connection: Connection,
+  /** What the firmware took on the last connect; kept after disconnect, null before the first. */
+  capabilities: Schema.NullOr(DeviceCapabilities),
   ignition: Schema.Boolean,
   protocol: ObdProtocol,
   vinEnabled: Schema.Boolean,

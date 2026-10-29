@@ -4,6 +4,7 @@ import { READINESS_MONITOR_IDS } from "./readiness.ts";
 
 export const makeDefaultState = (): EmulatorState => ({
   connection: { _tag: "disconnected" },
+  capabilities: null,
   ignition: true,
   protocol: "CAN_11B_500K",
   vinEnabled: true,

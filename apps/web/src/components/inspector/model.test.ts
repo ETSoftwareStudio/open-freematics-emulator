@@ -1,14 +1,18 @@
+import type { DtcCode } from "@fme/contracts";
 import { DTC_CATALOG } from "@fme/shared/dtcs";
 import { PID_GROUPS, PIDS, type PidDefinition } from "@fme/shared/pids";
 import { describe, expect, it } from "vite-plus/test";
 import {
   INSPECTOR_PID_GROUPS,
   filterGroupRows,
+  firmwareLock,
+  firmwareSupport,
   matchesDtcQuery,
   monitorFromStatus,
   monitorStatus,
   pidWords,
   readinessProgress,
+  unsentNote,
 } from "./model.ts";
 
 const temperatures = PIDS.filter((pid) => pid.group === "Temperatures");
@@ -78,5 +82,43 @@ describe("readiness monitors", () => {
       egrSystem: monitor(false, false),
     };
     expect(readinessProgress(readiness)).toEqual({ supported: 5, complete: 3 });
+  });
+});
+
+describe("firmware support", () => {
+  const v12 = { dtcModes: ["03" as const], calibrationId: false };
+  const v13 = { dtcModes: ["03" as const, "07" as const, "0A" as const], calibrationId: true };
+
+  it("is unknown before the first connect, except for stored codes", () => {
+    expect(firmwareSupport(null, "03")).toBe("supported");
+    expect(firmwareSupport(null, "07")).toBe("unknown");
+    expect(firmwareSupport(null, "calibrationId")).toBe("unknown");
+  });
+
+  it("follows what the firmware took on the last connect", () => {
+    expect(firmwareSupport(v12, "0A")).toBe("unsupported");
+    expect(firmwareSupport(v12, "calibrationId")).toBe("unsupported");
+    expect(firmwareSupport(v13, "0A")).toBe("supported");
+    expect(firmwareSupport(v13, "calibrationId")).toBe("supported");
+  });
+
+  it("asks to connect while unknown and never promises an update adds a feature", () => {
+    expect(firmwareLock("supported", "1.2")).toBeNull();
+    expect(firmwareLock("unknown", null)?.label).toBe("Connect to check firmware support");
+    expect(firmwareLock("unsupported", "1.2")?.label).toBe("Not supported by V1.2");
+    expect(firmwareLock("unsupported", null)?.label).toBe("Not on this firmware");
+    expect(firmwareLock("unsupported", "1.2")?.title).toMatch(/may add it/);
+  });
+
+  it("says which staged edits weren't sent and why", () => {
+    expect(unsentNote({ _tag: "dtcs", mode: "07", codes: ["P0420" as DtcCode] })).toBe(
+      "Pending code P0420 wasn't sent: this firmware doesn't support Mode 07.",
+    );
+    expect(
+      unsentNote({ _tag: "dtcs", mode: "0A", codes: ["P0171", "P0174"] as Array<DtcCode> }),
+    ).toBe("Permanent codes P0171, P0174 weren't sent: this firmware doesn't support Mode 0A.");
+    expect(unsentNote({ _tag: "calibrationId", calibrationId: "CAL-1" })).toBe(
+      "Calibration ID CAL-1 wasn't sent: this firmware doesn't support it.",
+    );
   });
 });

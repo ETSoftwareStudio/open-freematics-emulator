@@ -1,5 +1,4 @@
 import type { CalibrationId, Vin } from "@fme/contracts";
-import { LockIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { InspectorGroup, useInspectorFilter } from "~/components/shell/Inspector";
 import { PropertyRow } from "~/components/shell/PropertyRow";
@@ -23,7 +22,9 @@ import {
   setVinEnabledAtom,
 } from "~/rpc/atoms";
 import { useCommand, useEmulatorState } from "~/rpc/hooks";
-import { NEEDS_LATEST_FIRMWARE, connectedCapabilities, filterGroupRows } from "./model";
+import { useFirmware } from "~/components/emulator/Firmware";
+import { FirmwareLockNote, UnsentNote } from "./FirmwareNotes";
+import { filterGroupRows, firmwareLock, firmwareSupport } from "./model";
 
 const VIN_PATTERN = /^[A-HJ-NPR-Z0-9]{17}$/;
 const CALIBRATION_ID_PATTERN = /^[\x20-\x7E]{1,16}$/;
@@ -100,12 +101,19 @@ export function VehicleGroup() {
   const setVinEnabled = useCommand(setVinEnabledAtom);
   const setCalibrationId = useCommand(setCalibrationIdAtom);
   const ids = { ignition: useId(), vin: useId(), calibration: useId() };
+  const firmware = useFirmware();
   if (state === null) return null;
 
   const { rows, keywords } = filterGroupRows(filter, "Vehicle", ROWS, (row) => row.words);
   const shows = (id: (typeof ROWS)[number]["id"]) => rows.some((row) => row.id === id);
   const connected = state.connection._tag === "connected";
-  const calibrationLocked = connectedCapabilities(state)?.calibrationId === false;
+  const calibrationLock = firmwareLock(
+    firmwareSupport(state.capabilities, "calibrationId"),
+    firmware.info.version,
+  );
+  const calibrationUnsent = connected
+    ? state.connection.unsent.find((edit) => edit._tag === "calibrationId")
+    : undefined;
 
   return (
     <InspectorGroup
@@ -187,11 +195,8 @@ export function VehicleGroup() {
 
       {shows("calibration") ? (
         <PropertyRow label="Calibration ID" htmlFor={ids.calibration}>
-          {calibrationLocked ? (
-            <span className="flex w-48 items-center gap-1.25 text-subtle-foreground">
-              <LockIcon className="size-3 shrink-0" />
-              Needs {NEEDS_LATEST_FIRMWARE}
-            </span>
+          {calibrationLock !== null ? (
+            <FirmwareLockNote lock={calibrationLock} className="w-48" />
           ) : (
             <TextSetting
               id={ids.calibration}
@@ -205,6 +210,9 @@ export function VehicleGroup() {
             />
           )}
         </PropertyRow>
+      ) : null}
+      {shows("calibration") && calibrationUnsent !== undefined ? (
+        <UnsentNote edit={calibrationUnsent} />
       ) : null}
     </InspectorGroup>
   );

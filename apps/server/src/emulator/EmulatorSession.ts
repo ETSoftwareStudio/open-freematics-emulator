@@ -13,6 +13,7 @@ import {
   type ReadinessMonitorId,
   type SerialPortInfo,
   type SerialPortListError,
+  type UnsentEdit,
 } from "@fme/contracts";
 import { AT } from "@fme/shared/atCommands";
 import { makeDefaultState } from "@fme/shared/defaultState";
@@ -186,13 +187,15 @@ const make = Effect.gen(function* () {
     if (desired.calibrationId !== null) {
       yield* client.command(AT.setCalibrationId(desired.calibrationId)).pipe(Effect.ignore);
     }
+    // Edits staged offline that this firmware can't take are dropped and reported.
+    const unsent: Array<UnsentEdit> = [];
     const acceptedDtcs = { ...desired.dtcs };
     for (const mode of DTC_MODES) {
       const codes = desired.dtcs[mode];
       if (codes.length === 0) continue;
-      // Codes set while offline for a mode this firmware lacks are dropped.
       if (!dtcModes.includes(mode)) {
         acceptedDtcs[mode] = [];
+        unsent.push({ _tag: "dtcs", mode, codes });
         continue;
       }
       yield* client.command(AT.setDtcs(mode, codes));
@@ -203,11 +206,17 @@ const make = Effect.gen(function* () {
     const pushed = { ...desired, dtcs: acceptedDtcs };
     yield* client.command(monitorStatusCommand(pushed));
     const vin = yield* client.query(AT.getVin).pipe(Effect.option);
-    const calibrationId = yield* client.query(AT.getCalibrationId).pipe(Effect.option);
+    const calibrationId = Option.getOrNull(
+      yield* client.query(AT.getCalibrationId).pipe(Effect.option),
+    );
+    // As the official GUI does: CALID is supported when the firmware answers ATGET CALID.
+    const capabilities = { dtcModes, calibrationId: calibrationId !== null };
+    if (desired.calibrationId !== null && !capabilities.calibrationId) {
+      unsent.push({ _tag: "calibrationId", calibrationId: desired.calibrationId });
+    }
     return {
-      ...pushed,
-      vin: Option.getOrNull(vin),
-      calibrationId: Option.getOrNull(calibrationId),
+      state: { ...pushed, vin: Option.getOrNull(vin), calibrationId, capabilities },
+      unsent,
     };
   });
 
@@ -233,21 +242,19 @@ const make = Effect.gen(function* () {
         Effect.mapError(() => new EmulatorConnectError({ target, reason: "no-handshake" })),
       );
       const desired = yield* SubscriptionRef.get(state);
-      const { dtcModes, pushed } = yield* Effect.gen(function* () {
-        const dtcModes = yield* probeDtcModes(client);
-        const pushed = yield* pushState(client, desired, dtcModes);
-        return { dtcModes, pushed };
-      }).pipe(Effect.mapError(() => new EmulatorConnectError({ target, reason: "setup-failed" })));
+      const pushed = yield* probeDtcModes(client).pipe(
+        Effect.flatMap((dtcModes) => pushState(client, desired, dtcModes)),
+        Effect.mapError(() => new EmulatorConnectError({ target, reason: "setup-failed" })),
+      );
       yield* Ref.set(active, Option.some({ id, client, scope }));
       yield* update((s) => ({
-        ...pushed,
-        pids: { ...s.pids, ...pushed.pids },
+        ...pushed.state,
+        pids: { ...s.pids, ...pushed.state.pids },
         connection: {
           _tag: "connected",
           target,
           device: parseDeviceInfo(resetLines),
-          // As the official GUI does: CALID is supported when the firmware answers ATGET CALID.
-          capabilities: { dtcModes, calibrationId: pushed.calibrationId !== null },
+          unsent: pushed.unsent,
         },
       }));
     });
