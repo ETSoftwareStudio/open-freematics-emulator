@@ -111,6 +111,8 @@ if (!app.requestSingleInstanceLock()) {
     credits:
       "An independent, unofficial app for the Freematics OBD-II Emulator MK2. " +
       "Not affiliated with, endorsed by or supported by Freematics.",
+    copyright: "Developed by ET Software Studio Inc. · etsoftware.studio",
+    website: "https://etsoftware.studio",
     iconPath: ICON,
   });
 

@@ -1,4 +1,3 @@
-import { SquareArrowOutUpRightIcon } from "lucide-react";
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "~/components/ui/popover";
 import { Separator } from "~/components/ui/separator";
 import { version } from "../../../package.json";
@@ -37,15 +36,17 @@ export function AboutPopover() {
           Unofficial. Not affiliated with, endorsed by or supported by Freematics. Freematics and
           product names are trademarks of their owner.
         </p>
-        <a
-          href="https://freematics.com/products/freematics-obd-emulator-mk2/"
-          target="_blank"
-          rel="noreferrer noopener"
-          className="mx-auto mt-2 flex w-fit items-center gap-1 text-2xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-        >
-          MK2 product page
-          <SquareArrowOutUpRightIcon className="size-3" />
-        </a>
+        <p className="mt-2 text-center text-2xs text-muted-foreground">
+          Developed by{" "}
+          <a
+            href="https://etsoftware.studio"
+            target="_blank"
+            rel="noreferrer noopener"
+            className="underline decoration-muted-foreground/40 underline-offset-2 hover:text-foreground hover:decoration-current"
+          >
+            ET Software Studio Inc.
+          </a>
+        </p>
       </PopoverPopup>
     </Popover>
   );
