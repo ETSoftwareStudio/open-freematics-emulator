@@ -1,15 +1,42 @@
 import * as NodeChildProcess from "node:child_process";
 import * as NodeNet from "node:net";
 import * as NodePath from "node:path";
-import { BrowserWindow, app, dialog, shell } from "electron";
+import {
+  BrowserWindow,
+  Menu,
+  app,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  shell,
+  type MenuItemConstructorOptions,
+} from "electron";
+import { APPEARANCE_CHANNELS, isAppearance, type Appearance } from "./appearance.ts";
+import { readSettings, writeSettings } from "./settings.ts";
 
 const SERVER_ENTRY = NodePath.join(import.meta.dirname, "server", "bin.mjs");
 const WEB_ROOT = NodePath.join(import.meta.dirname, "web");
 const ICON = NodePath.join(import.meta.dirname, "icon.png");
+const PRELOAD = NodePath.join(import.meta.dirname, "preload.cjs");
 const STARTUP_TIMEOUT_MS = 15_000;
 
 let server: NodeChildProcess.ChildProcess | null = null;
 let quitting = false;
+let settings = readSettings();
+
+const IS_MAC = process.platform === "darwin";
+const TOOLBAR_HEIGHT = 52;
+// These mirror the web app's --toolbar and --window tokens and its foreground, per theme.
+const CHROME = {
+  light: { window: "#f5f5f3", toolbar: "#e9e9e6", symbols: "#3d3d3a" },
+  dark: { window: "#131312", toolbar: "#1d1d1b", symbols: "#ecebe6" },
+};
+const chromeColors = () => (nativeTheme.shouldUseDarkColors ? CHROME.dark : CHROME.light);
+const titleBarOverlay = () => ({
+  color: chromeColors().toolbar,
+  symbolColor: chromeColors().symbols,
+  height: TOOLBAR_HEIGHT,
+});
 
 const freePort = () =>
   new Promise<number>((resolve, reject) => {
@@ -65,17 +92,91 @@ const startServer = (port: number) =>
     );
   });
 
+const setAppearance = (appearance: Appearance) => {
+  nativeTheme.themeSource = appearance;
+  if (appearance === settings.appearance) return;
+  settings = { ...settings, appearance };
+  writeSettings(settings);
+  buildMenu();
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(APPEARANCE_CHANNELS.changed, appearance);
+  }
+};
+
+const buildMenu = () => {
+  const appearanceItem = (appearance: Appearance, label: string): MenuItemConstructorOptions => ({
+    label,
+    type: "radio",
+    checked: settings.appearance === appearance,
+    click: () => setAppearance(appearance),
+  });
+  const template: Array<MenuItemConstructorOptions> = [
+    ...(IS_MAC
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: "about" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideOthers" },
+              { role: "unhide" },
+              { type: "separator" },
+              { role: "quit" },
+            ],
+          } satisfies MenuItemConstructorOptions,
+        ]
+      : [{ label: "File", submenu: [{ role: "quit" }] } satisfies MenuItemConstructorOptions]),
+    { role: "editMenu" },
+    {
+      label: "View",
+      submenu: [
+        {
+          label: "Appearance",
+          submenu: [
+            appearanceItem("system", "System"),
+            appearanceItem("light", "Light"),
+            appearanceItem("dark", "Dark"),
+          ],
+        },
+        { type: "separator" },
+        ...(app.isPackaged
+          ? []
+          : ([
+              { role: "reload" },
+              { role: "forceReload" },
+              { role: "toggleDevTools" },
+              { type: "separator" },
+            ] satisfies Array<MenuItemConstructorOptions>)),
+        { role: "togglefullscreen" },
+      ],
+    },
+    { role: "windowMenu" },
+    {
+      role: "help",
+      submenu: IS_MAC
+        ? []
+        : [{ label: "About Freematics Emulator", click: () => app.showAboutPanel() }],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+};
+
 const createWindow = (url: string) => {
   const window = new BrowserWindow({
     width: 1320,
     height: 900,
-    minWidth: 420,
+    minWidth: 960,
     minHeight: 600,
     title: "Freematics Emulator",
-    backgroundColor: "#111214",
+    backgroundColor: chromeColors().window,
     icon: ICON,
     show: false,
-    webPreferences: { sandbox: true, contextIsolation: true },
+    // The web toolbar is the title bar; it leaves room for the window buttons.
+    ...(IS_MAC
+      ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 20, y: 19 } }
+      : { titleBarStyle: "hidden", titleBarOverlay: titleBarOverlay() }),
+    webPreferences: { sandbox: true, contextIsolation: true, preload: PRELOAD },
   });
   window.once("ready-to-show", () => window.show());
   // Only the local server's pages load in the window; links leave for the system browser.
@@ -101,6 +202,16 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on("window-all-closed", () => app.quit());
+
+  ipcMain.handle(APPEARANCE_CHANNELS.get, () => settings.appearance);
+  ipcMain.handle(APPEARANCE_CHANNELS.set, (_event, appearance: unknown) => {
+    if (isAppearance(appearance)) setAppearance(appearance);
+  });
+  nativeTheme.on("updated", () => {
+    if (IS_MAC) return;
+    for (const window of BrowserWindow.getAllWindows())
+      window.setTitleBarOverlay(titleBarOverlay());
+  });
   app.on("before-quit", () => {
     quitting = true;
     server?.kill();
@@ -116,7 +227,10 @@ if (!app.requestSingleInstanceLock()) {
     iconPath: ICON,
   });
 
+  nativeTheme.themeSource = settings.appearance;
+
   void app.whenReady().then(async () => {
+    buildMenu();
     // Unpackaged runs live in the stock Electron bundle, whose Dock icon is Electron's.
     if (!app.isPackaged) app.dock?.setIcon(ICON);
     try {

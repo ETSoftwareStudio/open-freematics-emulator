@@ -30,6 +30,17 @@ await build({
   clean: true,
   deps: { neverBundle: ["electron"] },
 });
+// Sandboxed preloads must be CommonJS.
+await build({
+  config: false,
+  entry: ["src/preload.ts"],
+  outDir: "dist",
+  format: "cjs",
+  platform: "node",
+  target: "node24",
+  clean: false,
+  deps: { neverBundle: ["electron"] },
+});
 
 NodeFS.cpSync(NodePath.join(root, "build/icon.png"), NodePath.join(root, "dist/icon.png"));
 if (!mainOnly) {
