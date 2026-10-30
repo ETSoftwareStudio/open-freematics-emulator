@@ -62,11 +62,13 @@ describe("firmware", () => {
     expect(firmwareUpdateAvailable(parseFirmwareInfo(latest, "x,y,202503,z"))).toBe(false);
   });
 
-  it("uses the build date when the version is the same", () => {
-    const current = `…V${LATEST_OFFICIAL_FIRMWARE.version}`;
-    expect(firmwareUpdateAvailable(parseFirmwareInfo(current, "x,y,202403,GH202403AA00001"))).toBe(
-      true,
+  // A real 2019 unit flashed to V1.3 still reports 201910 in the date field.
+  it("reports no update for a unit flashed to the latest version", () => {
+    const info = parseFirmwareInfo(
+      "OBD-II EMULATOR V1.3",
+      "00.00.02,00.01.08,201910,GH201910BN05928,LSGGG54EXE105928",
     );
+    expect(firmwareUpdateStatus(info)).toBe("current");
   });
 
   it("stays quiet when the identity can't be read", () => {

@@ -99,7 +99,8 @@ export const manufactureLabel = (info: FirmwareInfo): string | null => {
 const officialIsNewer = (info: FirmwareInfo): boolean | null => {
   const current = versionRank(info.version);
   const latest = versionRank(LATEST_OFFICIAL_FIRMWARE.version);
-  if (current !== null && latest !== null && current !== latest) return current < latest;
+  if (current !== null && latest !== null) return current < latest;
+  // Only without a version: the date field didn't change when a real unit was flashed to V1.3.
   if (info.buildCode !== null) return info.buildCode < LATEST_OFFICIAL_FIRMWARE.buildCode;
   return null;
 };
