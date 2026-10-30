@@ -1,5 +1,6 @@
 import { LATEST_OFFICIAL_FIRMWARE } from "@fme/shared/firmware";
 import { useFirmware } from "~/components/emulator/Firmware";
+import { UpdateFirmwareButton } from "~/components/firmware/UpdateFirmwareDialog";
 import { InspectorGroup } from "~/components/shell/Inspector";
 import { PropertyRow } from "~/components/shell/PropertyRow";
 
@@ -57,6 +58,9 @@ export function FirmwareGroup() {
       ) : (
         <p className="py-1.5 text-subtle-foreground">Connect to read the firmware version.</p>
       )}
+      <PropertyRow label="Update">
+        <UpdateFirmwareButton />
+      </PropertyRow>
     </InspectorGroup>
   );
 }

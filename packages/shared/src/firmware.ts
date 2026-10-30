@@ -1,6 +1,7 @@
 /**
  * Reads the firmware identity the MK2 prints on reset and compares it with the latest official
- * release. Flashing is left to the vendor's own updater; we only detect and point the user to it.
+ * release. Real units are flashed with the vendor's own updater for now; this only detects and
+ * points the user to it.
  */
 
 export interface FirmwareInfo {

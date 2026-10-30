@@ -51,7 +51,12 @@ function ConnectionInfobar() {
       tone="warning"
       icon={TriangleAlertIcon}
       actions={
-        <Button size="micro" variant="outline" onClick={target.connectSelected}>
+        <Button
+          size="micro"
+          variant="outline"
+          onClick={target.connectSelected}
+          disabled={target.updating}
+        >
           Connect
         </Button>
       }

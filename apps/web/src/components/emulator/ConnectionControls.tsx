@@ -14,14 +14,15 @@ import {
 } from "~/components/ui/select";
 import { StatusDot, type StatusTone } from "~/components/shell/StatusDot";
 import { connectAtom, disconnectAtom, portsAtom } from "~/rpc/atoms";
-import { useCommand, useEmulatorState } from "~/rpc/hooks";
+import { useCommand, useEmulatorState, useFirmwareUpdateState } from "~/rpc/hooks";
 
 const SIMULATED = "simulated";
 
 /** The device the user picked; null follows the live connection or the likeliest port. */
 const chosenTargetAtom = Atom.make<string | null>(null).pipe(Atom.keepAlive);
 
-const targetKey = (target: ConnectTarget) => (target._tag === "serial" ? target.path : SIMULATED);
+export const targetKey = (target: ConnectTarget) =>
+  target._tag === "serial" ? target.path : SIMULATED;
 
 const toTarget = (key: string): ConnectTarget =>
   key === SIMULATED ? { _tag: "simulated" } : { _tag: "serial", path: key };
@@ -35,6 +36,7 @@ export function useEmulatorTarget() {
   const portsResult = useAtomValue(portsAtom);
   const [chosen, setChosen] = useAtom(chosenTargetAtom);
   const connect = useCommand(connectAtom);
+  const firmwareUpdate = useFirmwareUpdateState();
   const ports = AsyncResult.isSuccess(portsResult) ? portsResult.value : [];
   const connection = state?.connection;
   const active = connection !== undefined && connection._tag !== "disconnected" ? connection : null;
@@ -54,6 +56,9 @@ export function useEmulatorTarget() {
     /** The port name without `/dev/`, or `Simulated device`. */
     label: simulated ? "Simulated device" : selected.replace("/dev/", ""),
     busy: connection?._tag === "connected" || connection?._tag === "connecting",
+    /** A firmware update owns the device until it ends. */
+    updating: firmwareUpdate?._tag === "running",
+    connectTarget: toTarget(selected),
     connectSelected: () => void connect({ target: toTarget(selected) }),
   };
 }
@@ -101,7 +106,7 @@ export function DevicePicker() {
       onOpenChange={(open) => {
         if (open) refreshPorts();
       }}
-      disabled={target.busy}
+      disabled={target.busy || target.updating}
     >
       <SelectTrigger size="compact" className="w-auto min-w-0 max-w-72" aria-label="Emulator port">
         <SelectValue>
@@ -166,7 +171,11 @@ export function ConnectButton() {
       Disconnect
     </Button>
   ) : (
-    <Button size="compact" onClick={target.connectSelected} disabled={!target.serverReachable}>
+    <Button
+      size="compact"
+      onClick={target.connectSelected}
+      disabled={!target.serverReachable || target.updating}
+    >
       Connect
     </Button>
   );

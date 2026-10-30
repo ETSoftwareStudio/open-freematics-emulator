@@ -4,7 +4,7 @@ import { useState } from "react";
 import type * as React from "react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import { PresetDialog, PresetDialogFooter } from "./dialog";
+import { Dialog, DialogFooter } from "~/components/ui/dialog";
 import { presetSummary } from "./presetText";
 import type { Presets } from "./usePresets";
 
@@ -142,7 +142,7 @@ export function ManagePresetsDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   return (
-    <PresetDialog open={open} onOpenChange={onOpenChange} title="Manage Presets" className="w-96">
+    <Dialog open={open} onOpenChange={onOpenChange} title="Manage Presets" className="w-96">
       <div className="-mx-1 min-h-0 overflow-y-auto px-1">
         <Section title="My presets">
           {presets.userPresets.length === 0 ? (
@@ -164,11 +164,11 @@ export function ManagePresetsDialog({
           ))}
         </Section>
       </div>
-      <PresetDialogFooter>
+      <DialogFooter>
         <Button variant="outline" size="xs" onClick={() => onOpenChange(false)}>
           Done
         </Button>
-      </PresetDialogFooter>
-    </PresetDialog>
+      </DialogFooter>
+    </Dialog>
   );
 }

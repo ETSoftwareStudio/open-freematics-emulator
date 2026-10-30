@@ -2,7 +2,7 @@ import { MAX_PRESET_NAME_LENGTH } from "@fme/contracts";
 import { useState } from "react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import { PresetDialog, PresetDialogFooter } from "./dialog";
+import { Dialog, DialogFooter } from "~/components/ui/dialog";
 import type { Presets } from "./usePresets";
 
 function SaveForm({ presets, onDone }: { presets: Presets; onDone: () => void }) {
@@ -37,14 +37,14 @@ function SaveForm({ presets, onDone }: { presets: Presets; onDone: () => void })
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
-      <PresetDialogFooter>
+      <DialogFooter>
         <Button variant="outline" size="xs" onClick={onDone}>
           Cancel
         </Button>
         <Button type="submit" size="xs" disabled={!valid || saving}>
           Save
         </Button>
-      </PresetDialogFooter>
+      </DialogFooter>
     </form>
   );
 }
@@ -61,7 +61,7 @@ export function SavePresetDialog({
 }) {
   const count = Object.keys(presets.savePids).length;
   return (
-    <PresetDialog
+    <Dialog
       open={open}
       onOpenChange={onOpenChange}
       title="Save as New Preset"
@@ -72,6 +72,6 @@ export function SavePresetDialog({
       }
     >
       <SaveForm presets={presets} onDone={() => onOpenChange(false)} />
-    </PresetDialog>
+    </Dialog>
   );
 }

@@ -52,8 +52,7 @@ export function UpdateInstructions() {
           Update to V{LATEST_OFFICIAL_FIRMWARE.version}
         </PopoverTitle>
         <p className="mt-1 text-muted-foreground text-xs">
-          Flashing is done by Freematics' own updater — this app never writes to the device, so
-          there's no risk of a bad flash from here.
+          Use Freematics' own updater. Flashing a real MK2 from this app is locked for now.
         </p>
         <p className="mt-2 text-xs">
           Freematics advises against updating units made before 2018.

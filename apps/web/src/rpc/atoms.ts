@@ -43,6 +43,10 @@ export const presetsAtom = EmulatorClient.runtime
   .atom(subscribe((client) => client(WS_METHODS.subscribePresets, undefined)))
   .pipe(Atom.keepAlive, Atom.withLabel("presets"));
 
+export const firmwareUpdateAtom = EmulatorClient.runtime
+  .atom(subscribe((client) => client(WS_METHODS.subscribeFirmwareUpdate, undefined)))
+  .pipe(Atom.keepAlive, Atom.withLabel("firmware:update"));
+
 export const portsAtom = EmulatorClient.query(WS_METHODS.listPorts, undefined, {
   reactivityKeys: ["ports"],
 });
@@ -71,3 +75,5 @@ export const readerReadOnceAtom = EmulatorClient.mutation(WS_METHODS.readerReadO
 export const applyPresetAtom = EmulatorClient.mutation(WS_METHODS.applyPreset);
 export const savePresetAtom = EmulatorClient.mutation(WS_METHODS.savePreset);
 export const deletePresetAtom = EmulatorClient.mutation(WS_METHODS.deletePreset);
+export const inspectFirmwareAtom = EmulatorClient.mutation(WS_METHODS.inspectFirmware);
+export const updateFirmwareAtom = EmulatorClient.mutation(WS_METHODS.updateFirmware);
