@@ -7,13 +7,14 @@ import {
   type FirmwareUpdateStage,
   type FirmwareUpdateState,
 } from "@fme/contracts";
-import type * as Cause from "effect/Cause";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Result from "effect/Result";
 import * as Scope from "effect/Scope";
@@ -47,13 +48,15 @@ import { parseIntelHex, type FirmwareImage } from "./intelHex.ts";
 /** SHA-256 of the vendor bootloader's wire key. The key itself is never in this repository. */
 const VENDOR_WIRE_KEY_SHA256 = "2d892f5f5ff0f613b75d1feea642910b064e7f35a5e616264dc039c90a082243";
 
-// The vendor updater waits 1 s for `>>>`, 3 s for an erase and 5 s for each write.
+// The vendor updater's waits, except the erase: it allows 3 s, and waiting longer is harmless.
 export const RESTART_DELAY = Duration.seconds(1);
 export const HANDSHAKE_TIMEOUT = Duration.seconds(1);
 export const HANDSHAKE_ATTEMPTS = 5;
-const REPLY_TIMEOUT = Duration.seconds(2);
-export const ERASE_TIMEOUT = Duration.seconds(3);
+export const REPLY_TIMEOUT = Duration.seconds(2);
+const FINISH_TIMEOUT = Duration.seconds(1);
+export const ERASE_TIMEOUT = Duration.seconds(10);
 const WRITE_TIMEOUT = Duration.seconds(5);
+export const RUN_SETTLE = Duration.millis(200);
 
 export class FirmwareUpdater extends Context.Service<
   FirmwareUpdater,
@@ -81,11 +84,20 @@ interface BootloaderConnection {
     text: string,
     timeout: Duration.Duration,
   ) => Effect.Effect<boolean, FirmwareUpdateError>;
-  readonly exchange: (
+  /** Sends a command and returns the first reply. */
+  readonly request: (
     command: number,
     payload: Uint8Array,
     timeout: Duration.Duration,
   ) => Effect.Effect<ReplyFrame, FirmwareUpdateError>;
+  /** Sends a command and waits for its acknowledgement, skipping other frames as the vendor does. */
+  readonly command: (
+    command: number,
+    payload: Uint8Array,
+    timeout: Duration.Duration,
+  ) => Effect.Effect<void, FirmwareUpdateError>;
+  /** Sends a command that gets no reply. */
+  readonly post: (command: number, payload: Uint8Array) => Effect.Effect<void, FirmwareUpdateError>;
 }
 
 const linkError = () => new FirmwareUpdateError({ reason: "link" });
@@ -103,8 +115,11 @@ const readImage = (text: string): Effect.Effect<FirmwareImage, FirmwareImageErro
 const imageBytes = (image: FirmwareImage) =>
   image.segments.reduce((sum, segment) => sum + segment.data.length, 0);
 
-const describe = (command: number, payload: Uint8Array) => {
-  const name = Object.entries(BootloaderCommand).find(([, value]) => value === command)?.[0];
+const commandName = (command: number) =>
+  Object.entries(BootloaderCommand).find(([, value]) => value === command)?.[0] ??
+  `0x${command.toString(16)}`;
+
+const describeRequest = (command: number, payload: Uint8Array) => {
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
   if (command === BootloaderCommand.write) {
     return `bootloader write 0x${view.getUint32(0).toString(16)} (${payload.length - 6} bytes)`;
@@ -112,20 +127,23 @@ const describe = (command: number, payload: Uint8Array) => {
   if (command === BootloaderCommand.erase) {
     return `bootloader erase 0x${view.getUint32(0).toString(16)} (${view.getUint16(4)} pages)`;
   }
-  return `bootloader ${name ?? command.toString(16)}`;
+  return `bootloader ${commandName(command)}`;
 };
 
-const expectAck = (reply: ReplyFrame) =>
-  reply.command === BootloaderCommand.ack && reply.payload[0] === 0
-    ? Effect.void
-    : Effect.fail(new FirmwareUpdateError({ reason: "unexpectedReply" }));
+const describeReply = ({ command, payload }: ReplyFrame) =>
+  `bootloader reply ${commandName(command)} (${payload.length} bytes)`;
 
 const expectReply = (reply: ReplyFrame, command: number, minLength = 0) =>
   reply.command === command && reply.payload.length >= minLength
     ? Effect.succeed(reply.payload)
     : Effect.fail(new FirmwareUpdateError({ reason: "unexpectedReply" }));
 
-const make = Effect.gen(function* () {
+export interface FirmwareUpdaterOptions {
+  /** Whether a real serial port may be flashed. */
+  readonly realHardware: boolean;
+}
+
+const make = Effect.fnUntraced(function* (options: FirmwareUpdaterOptions) {
   const serialPorts = yield* SerialPorts.SerialPorts;
   const simulated = yield* SimulatedDevice.SimulatedDevice;
   const session = yield* EmulatorSession.EmulatorSession;
@@ -184,48 +202,85 @@ const make = Effect.gen(function* () {
         ),
     );
 
-    const readFrame: Effect.Effect<ReplyFrame, FirmwareUpdateError> = Effect.gen(function* () {
+    // Garbled frames are dropped, as the vendor's reader does; the caller's timeout still applies.
+    const nextReply: Effect.Effect<ReplyFrame, FirmwareUpdateError> = Effect.gen(function* () {
       while (true) {
         const start = pending.indexOf(0xbb);
         pending = start < 0 ? [] : pending.slice(start);
         const end = pending.indexOf(0xee);
-        if (end > 0) {
-          const frame = Uint8Array.from(pending.slice(0, end + 1));
-          pending = pending.slice(end + 1);
-          const decoded = decodeReplyFrame(frame);
-          if (Result.isFailure(decoded)) {
-            return yield* new FirmwareUpdateError({ reason: "unexpectedReply" });
-          }
-          return decoded.success;
+        if (end < 0) {
+          yield* pull;
+          continue;
         }
-        yield* pull;
+        const frame = Uint8Array.from(pending.slice(0, end + 1));
+        pending = pending.slice(end + 1);
+        const decoded = decodeReplyFrame(frame);
+        if (Result.isFailure(decoded)) {
+          const shown = Buffer.from(frame.subarray(0, 32)).toString("hex");
+          yield* record("rx", `bootloader unreadable frame ${shown}`);
+          continue;
+        }
+        const reply = decoded.success;
+        yield* record("rx", describeReply(reply));
+        if (reply.command === BootloaderCommand.error) {
+          return yield* new FirmwareUpdateError({ reason: "rejected" });
+        }
+        return reply;
       }
     });
 
-    const exchange = Effect.fn("FirmwareUpdater.exchange")(function* (
-      command: number,
-      payload: Uint8Array,
-      timeout: Duration.Duration,
-    ) {
-      pending = [];
-      yield* write(link, encodeCommandFrame(command, payload, wireKey), describe(command, payload));
-      const reply = yield* readFrame.pipe(
+    const within = <A>(effect: Effect.Effect<A, FirmwareUpdateError>, timeout: Duration.Duration) =>
+      effect.pipe(
         Effect.timeoutOrElse({
           duration: timeout,
           orElse: () => Effect.fail(new FirmwareUpdateError({ reason: "noReply" })),
         }),
       );
-      yield* record("rx", describe(reply.command, reply.payload));
-      if (reply.command === BootloaderCommand.error) {
-        return yield* new FirmwareUpdateError({ reason: "rejected" });
-      }
-      return reply;
+
+    const post = Effect.fn("FirmwareUpdater.post")(function* (
+      command: number,
+      payload: Uint8Array,
+    ) {
+      pending = [];
+      yield* write(
+        link,
+        encodeCommandFrame(command, payload, wireKey),
+        describeRequest(command, payload),
+      );
+    });
+
+    const request = Effect.fn("FirmwareUpdater.request")(function* (
+      command: number,
+      payload: Uint8Array,
+      timeout: Duration.Duration,
+    ) {
+      yield* post(command, payload);
+      return yield* within(nextReply, timeout);
+    });
+
+    const command = Effect.fn("FirmwareUpdater.command")(function* (
+      command: number,
+      payload: Uint8Array,
+      timeout: Duration.Duration,
+    ) {
+      yield* post(command, payload);
+      yield* within(
+        Effect.gen(function* () {
+          while (true) {
+            const reply = yield* nextReply;
+            if (reply.command === BootloaderCommand.ack && reply.payload[0] === 0) return;
+          }
+        }),
+        timeout,
+      );
     });
 
     return {
       send: (data, note) => write(link, data, note),
       awaitText,
-      exchange,
+      request,
+      command,
+      post,
     } satisfies BootloaderConnection;
   });
 
@@ -275,7 +330,7 @@ const make = Effect.gen(function* () {
 
       yield* progress("reading");
       const info = yield* bootloader
-        .exchange(BootloaderCommand.readChipId, new Uint8Array(), REPLY_TIMEOUT)
+        .request(BootloaderCommand.readChipId, new Uint8Array(), REPLY_TIMEOUT)
         .pipe(Effect.flatMap((reply) => expectReply(reply, BootloaderCommand.readChipId, 14)));
       const flashKib = (info[0]! << 8) | info[1]!;
       const chipId = info.slice(2, 14);
@@ -285,7 +340,7 @@ const make = Effect.gen(function* () {
         BootloaderCommand.readBootInfo,
       ]) {
         yield* bootloader
-          .exchange(command, new Uint8Array(), REPLY_TIMEOUT)
+          .request(command, new Uint8Array(), REPLY_TIMEOUT)
           .pipe(Effect.flatMap((reply) => expectReply(reply, command)));
       }
       const plan = planFlash(image, flashKib);
@@ -296,57 +351,57 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           yield* progress("erasing");
           applicationErased = true;
-          yield* bootloader
-            .exchange(BootloaderCommand.erase, erasePayload(plan.success.erase), ERASE_TIMEOUT)
-            .pipe(Effect.flatMap(expectAck));
+          yield* bootloader.command(
+            BootloaderCommand.erase,
+            erasePayload(plan.success.erase),
+            ERASE_TIMEOUT,
+          );
           yield* progress("writing");
           for (const block of plan.success.writes) {
-            yield* bootloader
-              .exchange(BootloaderCommand.write, writePayload(block), WRITE_TIMEOUT)
-              .pipe(Effect.flatMap(expectAck));
+            yield* bootloader.command(BootloaderCommand.write, writePayload(block), WRITE_TIMEOUT);
             written += block.data.length;
             yield* progress("writing");
           }
           yield* progress("finishing");
-          yield* bootloader
-            .exchange(BootloaderCommand.writeDone, new Uint8Array(), REPLY_TIMEOUT)
-            .pipe(Effect.flatMap(expectAck));
-          yield* bootloader
-            .exchange(BootloaderCommand.readCheck, new Uint8Array(8), REPLY_TIMEOUT)
-            .pipe(Effect.flatMap((reply) => expectReply(reply, BootloaderCommand.readCheck)));
-          yield* bootloader
-            .exchange(
-              BootloaderCommand.writeCrc,
-              finalizerPayload(finalizerCrc(chipId)),
-              REPLY_TIMEOUT,
-            )
-            .pipe(Effect.flatMap(expectAck));
+          // The vendor updater needs some reply to these two, whatever it says.
+          yield* bootloader.request(BootloaderCommand.writeDone, new Uint8Array(), FINISH_TIMEOUT);
+          // Its serial-number check: zeros when it has no DevSerialNum.txt, and it ships none.
+          yield* bootloader.request(BootloaderCommand.readCheck, new Uint8Array(8), FINISH_TIMEOUT);
+          yield* bootloader.command(
+            BootloaderCommand.writeCrc,
+            finalizerPayload(finalizerCrc(chipId)),
+            FINISH_TIMEOUT,
+          );
+          // A real V1.2 bootloader answers this with a bare `BB 00 EE`, so it's informational.
           const appInfo = yield* bootloader
-            .exchange(BootloaderCommand.readAppInfo, new Uint8Array(), REPLY_TIMEOUT)
-            .pipe(Effect.flatMap((reply) => expectReply(reply, BootloaderCommand.readAppInfo)));
-          yield* bootloader
-            .exchange(BootloaderCommand.run, runPayload(plan.success.runAddress), REPLY_TIMEOUT)
-            .pipe(Effect.flatMap(expectAck));
-          return /<VER>([^<]*)<\/VER>/.exec(Buffer.from(appInfo).toString("latin1"))?.[1] ?? null;
+            .request(BootloaderCommand.readAppInfo, new Uint8Array(), REPLY_TIMEOUT)
+            .pipe(Effect.option);
+          // The bootloader jumps to the application without answering.
+          yield* bootloader.post(BootloaderCommand.run, runPayload(plan.success.runAddress));
+          yield* Effect.sleep(RUN_SETTLE);
+          if (Option.isNone(appInfo) || appInfo.value.command !== BootloaderCommand.readAppInfo) {
+            return null;
+          }
+          const text = Buffer.from(appInfo.value.payload).toString("latin1");
+          return /<VER>([^<]*)<\/VER>/.exec(text)?.[1] ?? null;
         }),
       );
     });
 
+    // Defects too: the state must never be left at "running".
     yield* Effect.scoped(steps).pipe(
-      Effect.matchEffect({
-        onSuccess: (version) =>
-          SubscriptionRef.set(state, { _tag: "succeeded", target, bytes: total, version }),
-        onFailure: (error) =>
-          Effect.andThen(
-            SubscriptionRef.set(state, {
-              _tag: "failed",
-              target,
-              stage,
-              reason: error.message,
-              applicationErased,
-            }),
-            Effect.fail(error),
-          ),
+      Effect.tap((version) =>
+        SubscriptionRef.set(state, { _tag: "succeeded", target, bytes: total, version }),
+      ),
+      Effect.tapCause((cause) => {
+        const error = Cause.findErrorOption(cause);
+        return SubscriptionRef.set(state, {
+          _tag: "failed",
+          target,
+          stage,
+          reason: Option.isSome(error) ? error.value.message : "The update stopped unexpectedly.",
+          applicationErased,
+        });
       }),
     );
   });
@@ -359,8 +414,9 @@ const make = Effect.gen(function* () {
       if (wireKeyFingerprint(wireKey) !== VENDOR_WIRE_KEY_SHA256) {
         return yield* new FirmwareUpdateError({ reason: "wrongKey" });
       }
-      // Stays locked until the bootloader protocol has been checked, read-only, on a real unit.
-      return yield* new FirmwareUpdateError({ reason: "hardwareLocked" });
+      if (!options.realHardware) {
+        return yield* new FirmwareUpdateError({ reason: "hardwareLocked" });
+      }
     }
     const fiber = yield* Effect.uninterruptible(
       Effect.gen(function* () {
@@ -391,4 +447,8 @@ const make = Effect.gen(function* () {
   return FirmwareUpdater.of({ state: SubscriptionRef.changes(state), inspect, update });
 });
 
-export const layer = Layer.effect(FirmwareUpdater, make);
+/** Real hardware stays locked until a supervised flash has shown the whole sequence works. */
+export const layer = Layer.effect(FirmwareUpdater, make({ realHardware: false }));
+
+export const layerWith = (options: FirmwareUpdaterOptions) =>
+  Layer.effect(FirmwareUpdater, make(options));

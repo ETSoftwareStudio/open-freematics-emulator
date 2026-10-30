@@ -242,6 +242,8 @@ export class SimulatedBootloader {
   /** A command to answer with an error frame, or to leave unanswered. */
   rejectCommand: number | null = null;
   silentCommand: number | null = null;
+  /** A command whose reply follows an unrelated frame, which the updater must skip. */
+  chattyCommand: number | null = null;
   readonly received: Array<number> = [];
   private text = "";
   private frame: Array<number> | null = null;
@@ -289,6 +291,13 @@ export class SimulatedBootloader {
     const { command, payload } = decoded.success;
     this.received.push(command);
     if (command === this.silentCommand) return new Uint8Array();
+    const reply = this.reply(command, payload);
+    return command === this.chattyCommand
+      ? Uint8Array.of(...encodeReplyFrame(command, Uint8Array.of(1)), ...reply)
+      : reply;
+  }
+
+  private reply(command: number, payload: Uint8Array): Uint8Array {
     const ack = encodeReplyFrame(BootloaderCommand.ack, Uint8Array.of(0));
     const error = encodeReplyFrame(BootloaderCommand.error, Uint8Array.of(command, 1));
     if (command === this.rejectCommand) return error;
@@ -331,10 +340,8 @@ export class SimulatedBootloader {
       case BootloaderCommand.writeDone:
         return ack;
       case BootloaderCommand.readAppInfo:
-        return encodeReplyFrame(
-          command,
-          Buffer.from("<DATE>20250311</DATE><VER>1.3</VER><TYPE>MK2</TYPE>"),
-        );
+        // Not a well-formed frame: the bare reply a real unit gave after a flash.
+        return Uint8Array.of(0xbb, 0x00, 0xee);
       case BootloaderCommand.run:
         this.mode = "off";
         return ack;

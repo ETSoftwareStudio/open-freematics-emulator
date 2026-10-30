@@ -56,7 +56,9 @@ const updateOverTime = (elapsed: Duration.Duration) =>
   Effect.gen(function* () {
     const updater = yield* FirmwareUpdater.FirmwareUpdater;
     const running = yield* updater.update(simulatedUpdate).pipe(Effect.exit, Effect.forkChild);
-    yield* TestClock.adjust(elapsed);
+    // The simulated unit, like a real one, sends no readable application info.
+    const finishing = Duration.sum(FirmwareUpdater.REPLY_TIMEOUT, FirmwareUpdater.RUN_SETTLE);
+    yield* TestClock.adjust(Duration.sum(elapsed, finishing));
     return yield* Fiber.join(running);
   });
 
@@ -85,7 +87,18 @@ describe("FirmwareUpdater", () => {
         0x00, 0x02, 0x04, 0x05, 0x06, 0x07, 0x07, 0x07, 0x08, 0x03, 0x01, 0x0b, 0x09,
       ]);
       expect(bootloader.mode).toBe("off");
-      expect(yield* stateOf).toMatchObject({ _tag: "succeeded", bytes: 2500, version: "1.3" });
+      expect(yield* stateOf).toMatchObject({ _tag: "succeeded", bytes: 2500, version: null });
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("waits past other frames for an acknowledgement and doesn't wait on run", () =>
+    Effect.gen(function* () {
+      const { bootloader } = yield* SimulatedDevice.SimulatedDevice;
+      bootloader.chattyCommand = BootloaderCommand.write;
+      bootloader.silentCommand = BootloaderCommand.run;
+      const exit = yield* updateOverTime(FirmwareUpdater.RESTART_DELAY);
+      expect(exit._tag).toBe("Success");
+      expect(bootloader.received.at(-1)).toBe(BootloaderCommand.run);
     }).pipe(Effect.provide(TestLayer)),
   );
 
@@ -180,7 +193,12 @@ describe("FirmwareUpdater", () => {
       );
       const second = yield* updater.update(simulatedUpdate).pipe(Effect.flip);
       expect(second).toMatchObject({ _tag: "FirmwareUpdateError", reason: "busy" });
-      yield* TestClock.adjust(FirmwareUpdater.RESTART_DELAY);
+      yield* TestClock.adjust(
+        Duration.sum(
+          FirmwareUpdater.RESTART_DELAY,
+          Duration.sum(FirmwareUpdater.REPLY_TIMEOUT, FirmwareUpdater.RUN_SETTLE),
+        ),
+      );
       yield* Fiber.join(first);
     }).pipe(Effect.provide(TestLayer)),
   );
