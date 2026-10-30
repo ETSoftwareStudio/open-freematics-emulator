@@ -39,7 +39,7 @@ const open = Effect.fn("TcpSockets.open")(function* (host: string, port: number)
     }),
     (socket) => Effect.sync(() => socket.destroy()),
   );
-  const write = (data: string) =>
+  const write = (data: string | Uint8Array) =>
     Effect.callback<void, DeviceLinkError>((resume) => {
       socket.write(data, (cause) =>
         resume(

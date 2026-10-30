@@ -8,6 +8,7 @@ import * as SerialPorts from "./device/SerialPorts.ts";
 import * as SimulatedDevice from "./device/SimulatedDevice.ts";
 import * as TcpSockets from "./device/TcpSockets.ts";
 import * as EmulatorSession from "./emulator/EmulatorSession.ts";
+import * as FirmwareUpdater from "./firmware/FirmwareUpdater.ts";
 import * as Http from "./http.ts";
 import * as ObdReader from "./obd/ObdReader.ts";
 import * as PresetStore from "./presets/PresetStore.ts";
@@ -32,6 +33,7 @@ export const makeLayer = (options: ServerOptions) =>
     ),
   ).pipe(
     Layer.provide(PresetStore.layer({ dataDir: options.dataDir })),
+    Layer.provide(FirmwareUpdater.layer),
     Layer.provide(Layer.mergeAll(EmulatorSession.layer, ObdReader.layer)),
     Layer.provide(SimulatedDevice.layer),
     Layer.provide(Layer.mergeAll(SerialPorts.layer, TcpSockets.layer)),

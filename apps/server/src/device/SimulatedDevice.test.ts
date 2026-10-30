@@ -1,5 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
-import { SIMULATED_BANNER, SimulatedFirmware } from "./SimulatedDevice.ts";
+import * as Result from "effect/Result";
+import { decodeReplyFrame, encodeCommandFrame } from "../firmware/bootloaderFrame.ts";
+import { SIMULATED_BANNER, SimulatedBootloader, SimulatedFirmware } from "./SimulatedDevice.ts";
 
 // Replies recorded from a real MK2 (firmware V1.2) over USB.
 describe("SimulatedFirmware", () => {
@@ -49,5 +51,31 @@ describe("SimulatedFirmware", () => {
     expect(reply.startsWith(`${SIMULATED_BANNER}\r\n${SIMULATED_BANNER}\r\n`)).toBe(true);
     expect(reply.endsWith(",1HGCD5654VA061985\r\n")).toBe(true);
     expect(firmware.handle("ATGET 010C")).toBe("010C=00 00 \r");
+  });
+});
+
+// Replies a real MK2 V1.2 bootloader gave a read-only probe on 2026-10-30.
+describe("SimulatedBootloader", () => {
+  const text = (data: string) => Buffer.from(data, "latin1");
+  const said = (bytes: Uint8Array) => Buffer.from(bytes).toString("latin1");
+
+  it("answers the handshake only after a reset arms it", () => {
+    const bootloader = new SimulatedBootloader();
+    expect(bootloader.mode).toBe("off");
+    bootloader.mode = "armed";
+    expect(said(bootloader.receive(text("***")))).toBe(">>>");
+    expect(said(bootloader.receive(text("Download?")))).toBe("OK.");
+  });
+
+  it("reports 128 KiB of flash and a 12-byte chip ID", () => {
+    const bootloader = new SimulatedBootloader();
+    bootloader.mode = "armed";
+    bootloader.receive(text("***Download?"));
+    const reply = bootloader.receive(
+      encodeCommandFrame(0x00, new Uint8Array(), bootloader.wireKey),
+    );
+    const { command, payload } = Result.getOrThrow(decodeReplyFrame(reply));
+    expect(command).toBe(0x00);
+    expect([payload[0], payload[1], payload.length]).toEqual([0x00, 0x80, 14]);
   });
 });

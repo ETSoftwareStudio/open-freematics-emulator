@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { RpcSerialization, RpcServer } from "effect/rpc";
 import * as EmulatorSession from "./emulator/EmulatorSession.ts";
+import * as FirmwareUpdater from "./firmware/FirmwareUpdater.ts";
 import * as ObdReader from "./obd/ObdReader.ts";
 import * as PresetStore from "./presets/PresetStore.ts";
 import * as TrafficLog from "./traffic/TrafficLog.ts";
@@ -13,6 +14,7 @@ const handlers = WsRpcGroup.toLayer(
     const traffic = yield* TrafficLog.TrafficLog;
     const reader = yield* ObdReader.ObdReader;
     const presets = yield* PresetStore.PresetStore;
+    const firmware = yield* FirmwareUpdater.FirmwareUpdater;
     return WsRpcGroup.of({
       [WS_METHODS.listPorts]: () => session.listPorts,
       [WS_METHODS.connect]: ({ target }) => session.connect(target),
@@ -44,6 +46,9 @@ const handlers = WsRpcGroup.toLayer(
       [WS_METHODS.applyPreset]: ({ id }) => presets.apply(id),
       [WS_METHODS.savePreset]: (input) => presets.save(input),
       [WS_METHODS.deletePreset]: ({ id }) => presets.delete(id),
+      [WS_METHODS.inspectFirmware]: ({ image }) => firmware.inspect(image),
+      [WS_METHODS.updateFirmware]: (input) => firmware.update(input),
+      [WS_METHODS.subscribeFirmwareUpdate]: () => firmware.state,
     });
   }),
 );

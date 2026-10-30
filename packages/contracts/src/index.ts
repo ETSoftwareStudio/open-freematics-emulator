@@ -3,3 +3,4 @@ export * from "./emulator.ts";
 export * from "./rpc.ts";
 export * from "./reader.ts";
 export * from "./presets.ts";
+export * from "./firmware.ts";

@@ -6,9 +6,16 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import {
+  BootloaderCommand,
+  decodeCommandFrame,
+  encodeReplyFrame,
+} from "../firmware/bootloaderFrame.ts";
+import { APPLICATION_BASE, FLASH_BASE } from "../firmware/flashPlan.ts";
 import type { DeviceLink } from "./DeviceLink.ts";
 
 export const SIMULATED_BANNER = "OBD-II EMULATOR V1.2";
@@ -215,10 +222,133 @@ export class SimulatedElm327 {
   }
 }
 
+export const SIMULATED_CHIP_ID = Uint8Array.from(Buffer.from("0123456789abcdef01234567", "hex"));
+/** Stands in for the vendor bootloader below the application, so tests can see it untouched. */
+export const SIMULATED_BOOTLOADER_BYTE = 0xb1;
+
+/**
+ * The MK2 bootloader as a real V1.2 unit answered a read-only probe: after `ATR` (never before) it
+ * answers `***` with `>>>` and `Download?` with `OK.`, then takes encrypted command frames until
+ * it's told to run the application. Erase and write follow the vendor updater's capture. The real wire key can't ship here, so it decrypts with whatever key it's
+ * given, and it refuses to erase or write below the application, as the real one must.
+ */
+export class SimulatedBootloader {
+  wireKey = new Uint8Array(16);
+  readonly flashKib = 128;
+  readonly flash = new Uint8Array(128 * 1024).fill(0xff);
+  mode: "off" | "armed" | "handshake" | "frames" = "off";
+  /** Handshakes to ignore before answering, like a unit still restarting. */
+  ignoreHandshakes = 0;
+  /** A command to answer with an error frame, or to leave unanswered. */
+  rejectCommand: number | null = null;
+  silentCommand: number | null = null;
+  readonly received: Array<number> = [];
+  private text = "";
+  private frame: Array<number> | null = null;
+
+  constructor() {
+    this.flash.fill(SIMULATED_BOOTLOADER_BYTE, 0, APPLICATION_BASE - FLASH_BASE);
+  }
+
+  /** Bytes in, bytes out. Text the bootloader isn't waiting for is dropped. */
+  receive(bytes: Uint8Array): Uint8Array {
+    const out: Array<number> = [];
+    for (const byte of bytes) {
+      // Between frames a new `***` restarts the handshake, so an aborted update can be retried.
+      if (this.mode !== "frames" || (this.frame === null && byte !== 0xbb)) {
+        this.text = (this.text + String.fromCharCode(byte)).slice(-16);
+        if (this.text.endsWith("***")) {
+          this.text = "";
+          if (this.ignoreHandshakes > 0) this.ignoreHandshakes--;
+          else {
+            this.mode = "handshake";
+            out.push(...Buffer.from(">>>"));
+          }
+        } else if (this.mode === "handshake" && this.text.endsWith("Download?")) {
+          this.text = "";
+          this.mode = "frames";
+          out.push(...Buffer.from("OK."));
+        }
+        continue;
+      }
+      if (byte === 0xbb) this.frame = [byte];
+      else if (this.frame !== null) {
+        this.frame.push(byte);
+        if (byte === 0xee) {
+          out.push(...this.handle(Uint8Array.from(this.frame)));
+          this.frame = null;
+        }
+      }
+    }
+    return Uint8Array.from(out);
+  }
+
+  private handle(frame: Uint8Array): Uint8Array {
+    const decoded = decodeCommandFrame(frame, this.wireKey);
+    if (Result.isFailure(decoded)) return new Uint8Array();
+    const { command, payload } = decoded.success;
+    this.received.push(command);
+    if (command === this.silentCommand) return new Uint8Array();
+    const ack = encodeReplyFrame(BootloaderCommand.ack, Uint8Array.of(0));
+    const error = encodeReplyFrame(BootloaderCommand.error, Uint8Array.of(command, 1));
+    if (command === this.rejectCommand) return error;
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    const end = FLASH_BASE + this.flashKib * 1024;
+    switch (command) {
+      case BootloaderCommand.readChipId:
+        return encodeReplyFrame(
+          command,
+          Uint8Array.of(this.flashKib >> 8, this.flashKib & 0xff, ...SIMULATED_CHIP_ID),
+        );
+      case BootloaderCommand.readSerial:
+        return encodeReplyFrame(command, Uint8Array.of(...Buffer.from("G1901."), 0, 0, 0, 0, 0, 0));
+      case BootloaderCommand.readVersion:
+        return encodeReplyFrame(
+          command,
+          Uint8Array.of(...Buffer.from("0001"), 0x14, 0x05, 0, 0x20, 1, 0),
+        );
+      case BootloaderCommand.readBootInfo:
+        return encodeReplyFrame(command, Buffer.from("USART:0002"));
+      case BootloaderCommand.readCheck:
+        return encodeReplyFrame(command, payload);
+      case BootloaderCommand.erase: {
+        const address = view.getUint32(0);
+        const stop = address + view.getUint16(4) * 1024;
+        if (payload.length !== 6 || address < APPLICATION_BASE || stop > end) return error;
+        this.flash.fill(0xff, address - FLASH_BASE, stop - FLASH_BASE);
+        return ack;
+      }
+      case BootloaderCommand.write: {
+        const address = view.getUint32(0);
+        const data = payload.subarray(6);
+        if (view.getUint16(4) !== data.length || address < APPLICATION_BASE) return error;
+        if (address + data.length > end) return error;
+        this.flash.set(data, address - FLASH_BASE);
+        return ack;
+      }
+      case BootloaderCommand.writeCrc:
+        return payload.length === 16 ? ack : error;
+      case BootloaderCommand.writeDone:
+        return ack;
+      case BootloaderCommand.readAppInfo:
+        return encodeReplyFrame(
+          command,
+          Buffer.from("<DATE>20250311</DATE><VER>1.3</VER><TYPE>MK2</TYPE>"),
+        );
+      case BootloaderCommand.run:
+        this.mode = "off";
+        return ack;
+      default:
+        return error;
+    }
+  }
+}
+
 export class SimulatedDevice extends Context.Service<
   SimulatedDevice,
   {
     readonly firmware: SimulatedFirmware;
+    readonly bootloader: SimulatedBootloader;
     readonly open: Effect.Effect<DeviceLink, never, Scope.Scope>;
     /** An OBD-II adapter plugged into the simulated emulator. */
     readonly openAdapter: Effect.Effect<DeviceLink, never, Scope.Scope>;
@@ -228,20 +358,37 @@ export class SimulatedDevice extends Context.Service<
 const make = Effect.sync(() => {
   // One firmware per server, so state survives reconnects like a real device.
   const firmware = new SimulatedFirmware();
+  const bootloader = new SimulatedBootloader();
   const adapter = new SimulatedElm327(firmware);
-  const linkTo = Effect.fn("SimulatedDevice.link")(function* (handle: (line: string) => string) {
+  const linkTo = Effect.fn("SimulatedDevice.link")(function* (
+    handle: (line: string) => string,
+    withBootloader: boolean,
+  ) {
     const output = yield* Effect.acquireRelease(Queue.unbounded<string>(), Queue.shutdown);
     const frame = makeLineFramer();
-    const write = (data: string) =>
+    const write = (data: string | Uint8Array) =>
       Effect.sync(() => {
-        for (const line of frame(data)) Queue.offerUnsafe(output, handle(line));
+        const bytes = typeof data === "string" ? Buffer.from(data, "latin1") : data;
+        if (withBootloader && bootloader.mode !== "off") {
+          const reply = bootloader.receive(bytes);
+          if (reply.length > 0) Queue.offerUnsafe(output, Buffer.from(reply).toString("latin1"));
+          if (bootloader.mode !== "armed") return;
+        }
+        for (const line of frame(Buffer.from(bytes).toString("latin1"))) {
+          Queue.offerUnsafe(output, handle(line));
+          // A reset restarts into the bootloader, which then listens for the updater.
+          if (withBootloader && line.replaceAll(" ", "").toUpperCase() === "ATR") {
+            bootloader.mode = "armed";
+          }
+        }
       });
     return { write, chunks: Stream.fromQueue(output) } satisfies DeviceLink;
   });
   return SimulatedDevice.of({
     firmware,
-    open: linkTo((line) => firmware.handle(line)),
-    openAdapter: linkTo((line) => adapter.handle(line)),
+    bootloader,
+    open: linkTo((line) => firmware.handle(line), true),
+    openAdapter: linkTo((line) => adapter.handle(line), false),
   });
 });
 

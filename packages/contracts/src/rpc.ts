@@ -20,6 +20,14 @@ import {
 } from "./emulator.ts";
 import { PidId } from "./baseSchemas.ts";
 import {
+  FirmwareImageError,
+  FirmwareImageSummary,
+  FirmwareUpdateError,
+  FirmwareUpdateInput,
+  FirmwareUpdateState,
+  InspectFirmwareInput,
+} from "./firmware.ts";
+import {
   Preset,
   PresetChangeError,
   PresetId,
@@ -63,6 +71,9 @@ export const WS_METHODS = {
   applyPreset: "presets.apply",
   savePreset: "presets.save",
   deletePreset: "presets.delete",
+  inspectFirmware: "firmware.inspect",
+  updateFirmware: "firmware.update",
+  subscribeFirmwareUpdate: "firmware.subscribeUpdate",
 } as const;
 
 const operation = <const Tag extends string, P extends Schema.Top>(tag: Tag, payload: P) =>
@@ -120,4 +131,14 @@ export const WsRpcGroup = RpcGroup.make(
     payload: Schema.Struct({ id: PresetId }),
     error: PresetChangeError,
   }),
+  Rpc.make(WS_METHODS.inspectFirmware, {
+    payload: InspectFirmwareInput,
+    success: FirmwareImageSummary,
+    error: FirmwareImageError,
+  }),
+  Rpc.make(WS_METHODS.updateFirmware, {
+    payload: FirmwareUpdateInput,
+    error: Schema.Union([FirmwareImageError, FirmwareUpdateError]),
+  }),
+  Rpc.make(WS_METHODS.subscribeFirmwareUpdate, { success: FirmwareUpdateState, stream: true }),
 );

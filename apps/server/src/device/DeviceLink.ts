@@ -13,7 +13,8 @@ export class DeviceLinkError extends Schema.TaggedError<DeviceLinkError>()("Devi
 
 /** A byte pipe to an emulator: the USB serial port or the in-memory simulator. */
 export interface DeviceLink {
-  readonly write: (data: string) => Effect.Effect<void, DeviceLinkError>;
-  /** Raw text as it arrives. Single consumer; ends or fails when the link drops. */
+  /** Text for the AT interface, bytes for the bootloader. */
+  readonly write: (data: string | Uint8Array) => Effect.Effect<void, DeviceLinkError>;
+  /** Raw text as it arrives, one character per byte. Single consumer; ends or fails when the link drops. */
   readonly chunks: Stream.Stream<string, DeviceLinkError>;
 }

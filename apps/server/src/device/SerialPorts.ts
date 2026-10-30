@@ -120,16 +120,24 @@ const openPosix = Effect.fn("SerialPorts.openPosix")(function* (path: string) {
         stream.once("close", () => resume(Effect.void)).destroy();
       }).pipe(Effect.andThen(Effect.try(() => NodeFS.closeSync(fd))), Effect.ignore),
   );
-  const write = (data: string) =>
-    Effect.callback<void, DeviceLinkError>((resume) => {
-      NodeFS.write(fd, data, (cause) =>
-        resume(
-          cause === null
-            ? Effect.void
-            : Effect.fail(new DeviceLinkError({ operation: "write", cause })),
-        ),
+  // The descriptor is non-blocking, so a long bootloader frame can go out in pieces.
+  const writeAll = (bytes: Uint8Array): Effect.Effect<void, DeviceLinkError> =>
+    Effect.callback<number, NodeJS.ErrnoException>((resume) => {
+      NodeFS.write(fd, bytes, (cause, written) =>
+        resume(cause === null ? Effect.succeed(written) : Effect.fail(cause)),
       );
-    });
+    }).pipe(
+      Effect.catchIf(
+        (cause) => cause.code === "EAGAIN",
+        () => Effect.as(Effect.sleep("5 millis"), 0),
+      ),
+      Effect.mapError((cause) => new DeviceLinkError({ operation: "write", cause })),
+      Effect.flatMap((written) =>
+        written < bytes.length ? writeAll(bytes.subarray(written)) : Effect.void,
+      ),
+    );
+  const write = (data: string | Uint8Array) =>
+    writeAll(typeof data === "string" ? Buffer.from(data) : data);
   return { write, chunks: chunksFrom(stream) } satisfies DeviceLink;
 });
 
@@ -146,9 +154,9 @@ const openWindows = Effect.fn("SerialPorts.openWindows")(function* (path: string
     }),
     (port) => Effect.sync(() => port.isOpen && port.close()),
   );
-  const write = (data: string) =>
+  const write = (data: string | Uint8Array) =>
     Effect.callback<void, DeviceLinkError>((resume) => {
-      port.write(data, (cause) =>
+      port.write(typeof data === "string" ? data : Buffer.from(data), (cause) =>
         resume(
           cause === null || cause === undefined
             ? Effect.void

@@ -11,7 +11,7 @@ import * as AtClient from "./AtClient.ts";
 /** A link whose replies the test scripts: each written command pops the next canned reply. */
 const scriptedLink = Effect.fn("scriptedLink")(function* (replies: Array<string | undefined>) {
   const incoming = yield* Queue.unbounded<string, Cause.Done>();
-  const written: Array<string> = [];
+  const written: Array<string | Uint8Array> = [];
   const link: DeviceLink = {
     write: (data) =>
       Effect.sync(() => {
