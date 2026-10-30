@@ -6,7 +6,8 @@ import { Button } from "~/components/ui/button";
 import { usePersistentState } from "~/lib/usePersistentState";
 import { lastErrorAtom } from "~/rpc/hooks";
 import { useEmulatorTarget } from "./ConnectionControls";
-import { UpdateInstructions, useFirmware } from "./Firmware";
+import { UpdateFirmwareButton } from "~/components/firmware/UpdateFirmwareDialog";
+import { useFirmware } from "./Firmware";
 
 function FirmwareInfobar() {
   const { updatable, info } = useFirmware();
@@ -18,11 +19,10 @@ function FirmwareInfobar() {
     <Infobar
       tone="warning"
       icon={DownloadIcon}
-      actions={<UpdateInstructions />}
+      actions={<UpdateFirmwareButton />}
       onDismiss={() => setDismissed(latest)}
     >
-      <b>Firmware V{latest} is available.</b> This MK2 runs V{info.version}
-      {info.buildLabel !== null ? ` (${info.buildLabel})` : ""}.
+      <b>Firmware V{latest} is available.</b> This MK2 runs V{info.version}.
     </Infobar>
   );
 }

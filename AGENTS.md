@@ -13,6 +13,10 @@ each one to a single `EmulatorSession` method. The session owns the device state
 serializes commands over a `DeviceLink`. A link is either the real serial port (`serialport`) or
 `SimulatedDevice`, an in-memory model of the MK2 firmware used in dev and tests.
 
+`FirmwareUpdater` flashes the MK2 through its bootloader: after `ATR` it speaks encrypted command
+frames (`apps/server/src/firmware/`). The wire key comes from the user with each update and is
+never stored or committed; nothing may address flash below `0x08003800`.
+
 `ObdReader` is the other side of the emulator: it talks to an ELM327-compatible OBD-II adapter
 plugged into the emulator's OBD port (Bluetooth SPP or USB as a serial port, Wi-Fi over TCP) and
 polls what a scan tool would see, so every setting can be checked from the vehicle side.

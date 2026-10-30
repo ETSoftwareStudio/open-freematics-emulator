@@ -8,15 +8,14 @@ import {
 } from "./firmware.ts";
 
 describe("firmware", () => {
-  it("reads the version and build date a V1.2 unit reports", () => {
+  it("reads the version and date a V1.2 unit reports", () => {
     const info = parseFirmwareInfo(
       "OBD-II EMULATOR V1.2",
       "00.00.02,00.01.05,201910,GH201910BN05928,1HGCD5654VA061985",
     );
     expect(info).toEqual({
       version: "1.2",
-      buildCode: "201910",
-      buildLabel: "October 2019",
+      dateCode: "201910",
       hardware: "00.01.05",
       serial: "GH201910BN05928",
     });
@@ -25,8 +24,7 @@ describe("firmware", () => {
   it("copes with a missing or short info line", () => {
     expect(parseFirmwareInfo("OBD-II EMULATOR V1.3", null)).toMatchObject({
       version: "1.3",
-      buildCode: null,
-      buildLabel: null,
+      dateCode: null,
     });
     expect(parseFirmwareInfo(null, null).version).toBeNull();
   });

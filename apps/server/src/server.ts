@@ -22,8 +22,6 @@ export interface ServerOptions {
   readonly webRoot: string | null;
   /** Where user presets are saved. */
   readonly dataDir: string;
-  /** Whether the firmware updater may flash a real MK2. */
-  readonly hardwareFlash: boolean;
 }
 
 export const makeLayer = (options: ServerOptions) =>
@@ -35,7 +33,7 @@ export const makeLayer = (options: ServerOptions) =>
     ),
   ).pipe(
     Layer.provide(PresetStore.layer({ dataDir: options.dataDir })),
-    Layer.provide(FirmwareUpdater.layerWith({ realHardware: options.hardwareFlash })),
+    Layer.provide(FirmwareUpdater.layer),
     Layer.provide(Layer.mergeAll(EmulatorSession.layer, ObdReader.layer)),
     Layer.provide(SimulatedDevice.layer),
     Layer.provide(Layer.mergeAll(SerialPorts.layer, TcpSockets.layer)),

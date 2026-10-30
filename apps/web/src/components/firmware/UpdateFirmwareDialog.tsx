@@ -10,6 +10,7 @@ import { CircleAlertIcon, CircleCheckIcon, SquareArrowOutUpRightIcon } from "luc
 import { useRef, useState } from "react";
 import type * as React from "react";
 import { useEmulatorTarget } from "~/components/emulator/ConnectionControls";
+import { useFirmware } from "~/components/emulator/Firmware";
 import { PropertyRow } from "~/components/shell/PropertyRow";
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogFooter } from "~/components/ui/dialog";
@@ -75,7 +76,7 @@ function FileButton({
   );
 }
 
-function VendorUpdaterLink() {
+function OfficialFirmwareLink() {
   return (
     <a
       href={LATEST_OFFICIAL_FIRMWARE.downloadUrl}
@@ -84,7 +85,7 @@ function VendorUpdaterLink() {
       className="inline-flex items-center gap-1.5 font-medium text-info-foreground hover:underline"
     >
       <SquareArrowOutUpRightIcon className="size-3.5" />
-      Official firmware & updater
+      Official firmware (in Freematics' GUI package)
     </a>
   );
 }
@@ -125,6 +126,7 @@ function UpdateFlow({
   onClose: () => void;
 }) {
   const emulator = useEmulatorTarget();
+  const firmware = useFirmware();
   const updateState = useFirmwareUpdateState();
   const inspect = useCall(inspectFirmwareAtom);
   const update = useCall(updateFirmwareAtom);
@@ -215,12 +217,7 @@ function UpdateFlow({
               The key is sent with this update only. It isn't stored.
             </p>
           </div>
-          {serial ? (
-            <div className="flex flex-col gap-1.5 text-warning-foreground">
-              <p>Flashing a real MK2 from this app is locked for now. Use Freematics' updater.</p>
-              <VendorUpdaterLink />
-            </div>
-          ) : null}
+          <OfficialFirmwareLink />
         </div>
         <DialogFooter>
           <Button variant="outline" size="xs" onClick={onClose}>
@@ -246,6 +243,14 @@ function UpdateFlow({
             bootloader isn't touched, so a failed update can be run again.
           </p>
           <p className="text-muted-foreground">Keep the device powered until it finishes.</p>
+          {serial && (firmware.update === "too-old" || firmware.update === "unknown-age") ? (
+            <p className="text-warning-foreground">
+              Freematics advises against updating units made before 2018.
+              {firmware.made !== null
+                ? ` This one was made in ${firmware.made}.`
+                : " This unit's age can't be read."}
+            </p>
+          ) : null}
         </div>
         <DialogFooter>
           <Button variant="outline" size="xs" onClick={() => setStep("choose")}>
@@ -320,12 +325,6 @@ function UpdateFlow({
             The application was erased, so the emulator won't run until an update succeeds. The
             bootloader is intact: you can run the update again.
           </p>
-        ) : null}
-        {serial ? (
-          <>
-            <p className="text-muted-foreground">For a real MK2, use Freematics' updater.</p>
-            <VendorUpdaterLink />
-          </>
         ) : null}
       </Outcome>
       <DialogFooter>

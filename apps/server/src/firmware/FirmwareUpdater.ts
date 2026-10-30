@@ -138,12 +138,7 @@ const expectReply = (reply: ReplyFrame, command: number, minLength = 0) =>
     ? Effect.succeed(reply.payload)
     : Effect.fail(new FirmwareUpdateError({ reason: "unexpectedReply" }));
 
-export interface FirmwareUpdaterOptions {
-  /** Whether a real serial port may be flashed. */
-  readonly realHardware: boolean;
-}
-
-const make = Effect.fnUntraced(function* (options: FirmwareUpdaterOptions) {
+const make = Effect.gen(function* () {
   const serialPorts = yield* SerialPorts.SerialPorts;
   const simulated = yield* SimulatedDevice.SimulatedDevice;
   const session = yield* EmulatorSession.EmulatorSession;
@@ -410,13 +405,9 @@ const make = Effect.fnUntraced(function* (options: FirmwareUpdaterOptions) {
     yield* Effect.annotateCurrentSpan("target", input.target._tag);
     const image = yield* readImage(input.image);
     const wireKey = Uint8Array.from(Buffer.from(input.wireKey, "hex"));
-    if (input.target._tag === "serial") {
-      if (wireKeyFingerprint(wireKey) !== VENDOR_WIRE_KEY_SHA256) {
-        return yield* new FirmwareUpdateError({ reason: "wrongKey" });
-      }
-      if (!options.realHardware) {
-        return yield* new FirmwareUpdateError({ reason: "hardwareLocked" });
-      }
+    // A real unit only ever sees frames under the vendor key.
+    if (input.target._tag === "serial" && wireKeyFingerprint(wireKey) !== VENDOR_WIRE_KEY_SHA256) {
+      return yield* new FirmwareUpdateError({ reason: "wrongKey" });
     }
     const fiber = yield* Effect.uninterruptible(
       Effect.gen(function* () {
@@ -447,8 +438,4 @@ const make = Effect.fnUntraced(function* (options: FirmwareUpdaterOptions) {
   return FirmwareUpdater.of({ state: SubscriptionRef.changes(state), inspect, update });
 });
 
-/** Real hardware stays locked until a supervised flash has shown the whole sequence works. */
-export const layer = Layer.effect(FirmwareUpdater, make({ realHardware: false }));
-
-export const layerWith = (options: FirmwareUpdaterOptions) =>
-  Layer.effect(FirmwareUpdater, make(options));
+export const layer = Layer.effect(FirmwareUpdater, make);

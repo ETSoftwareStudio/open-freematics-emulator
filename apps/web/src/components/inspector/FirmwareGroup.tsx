@@ -33,7 +33,7 @@ export function FirmwareGroup() {
     <InspectorGroup
       id="firmware"
       title="Firmware"
-      keywords="version status update built made serial"
+      keywords="version status update made serial"
       defaultOpen={false}
       summary={firmware.connected ? (version ?? undefined) : undefined}
     >
@@ -45,9 +45,6 @@ export function FirmwareGroup() {
               {status.text}
             </span>
           </PropertyRow>
-          {info.buildLabel !== null ? (
-            <PropertyRow label="Built">{info.buildLabel}</PropertyRow>
-          ) : null}
           {firmware.made !== null ? <PropertyRow label="Made">{firmware.made}</PropertyRow> : null}
           {info.serial !== null ? (
             <PropertyRow label="Serial">

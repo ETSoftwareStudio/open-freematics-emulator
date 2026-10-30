@@ -61,8 +61,8 @@ Verify a connected MK2 end to end (every control set over RPC and read back from
 vp run hardware:check   # with vp run dev running
 ```
 
-No hardware? Pick **Simulated device** in the connection bar. It speaks the same AT command set as
-the MK2 firmware, so everything in the UI works end to end.
+No hardware? Pick **Simulated device** in the connection bar. It behaves like a V1.3 unit, AT
+commands and bootloader both, so everything in the UI works end to end, firmware updates included.
 
 With hardware: power the emulator from its 12 V adapter, plug in USB with a data cable, and pick
 its port. Current units use a CP2102 bridge (`/dev/cu.usbserial-*` on macOS), older ones a CH340
@@ -83,27 +83,39 @@ its port. Current units use a CP2102 bridge (`/dev/cu.usbserial-*` on macOS), ol
    readiness monitors, raw AT console with traffic log. ✅
 5. **Verified end to end** – the app running against the real emulator over USB, every control
    checked by reading the value back from the device. ✅ (`vp run hardware:check`: 20/20 on a V1.2
-   unit; UI driven in the browser against the same unit.)
+   unit and again after flashing it to V1.3; UI driven in the browser against the same unit.)
+6. **Firmware updates** – flash an official image through the MK2's bootloader from the Firmware
+   inspector, with no Windows updater. ✅ (A real unit taken from V1.2 to V1.3.) You supply the
+   `.hex` from Freematics' GUI package and the bootloader's 16-byte wire key; the key is checked
+   against a known hash, used for that update only, and never stored. Nothing addresses flash
+   below `0x08003800`, where the vendor bootloader lives.
 
 **Additional: wireless.**
 
-6. **Scan tool read-back** – connect an ELM327-compatible OBD-II adapter plugged into the
+7. **Scan tool read-back** – connect an ELM327-compatible OBD-II adapter plugged into the
    emulator (Bluetooth SPP, Wi-Fi or USB) and see what a vehicle reader gets: live PID values next
    to each control, stored codes, VIN, detected protocol. ✅ with the simulated adapter and a
    real Bluetooth ELM327 (`vp run hardware:check --reader /dev/cu.OBDII`, 24/24). On macOS the
    adapter's port only answers once the Bluetooth link is connected.
-7. **Emulator over BLE** – manage the MK2 through its built-in BLE serial link instead of USB.
+8. **Emulator over BLE** – manage the MK2 through its built-in BLE serial link instead of USB.
 
 **Later:** drive-cycle scenarios (scripted PID streams).
 
-## Firmware notes (measured on a V1.2 unit)
+## Firmware notes (measured on one unit, on V1.2 and after updating it to V1.3)
 
 - 38400 8N1 over a CP2102 (newer units) or CH340 bridge. Lines end in `\r`; `ATGET VIN` ends in
   `\r\n`. `ATGET <pid>` answers `010C=1F 40 `.
 - Decimal `ATSET` truncates instead of rounding, rejects negatives, and mis-converts 015E, so the
   app always sends raw bytes from its own SAE encoders.
-- `ATZ`/`ATR` reset every PID to zero and print `OBD-II EMULATOR V1.2` plus a hardware info line.
-- `ATGET BUS`, CALID and Mode 07/0A DTCs answer `ERROR` on this firmware.
+- `ATZ`/`ATR` reset every PID to zero and print `OBD-II EMULATOR V1.x` plus an info line
+  (`<fw>,<hw>,<YYYYMM>,<serial>,<vin>`). The date is the unit's, not the firmware's: it didn't
+  change with the update.
+- V1.2: `ATGET BUS`, CALID and Mode 07/0A DTCs answer `ERROR`.
+- V1.3: CALID (default `JMB*36761500`) and Mode 07/0A DTCs work, an `SPN:00` line follows the
+  info line, and the default VIN `LSGGG54EXE105928` has 16 characters, so the app shows it but
+  won't set it back.
+- `ATR` restarts into the bootloader, which answers `***` with `>>>` (and ignores it otherwise).
+  Updates use AES-128-ECB command frames and clear replies; the simulated device models both.
 - On macOS, `serialport`'s kqueue poller never fires for the CP210x driver; the server reads the
   port through Node's TTY stream instead.
 

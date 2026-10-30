@@ -83,7 +83,6 @@ export class FirmwareUpdateError extends Schema.TaggedError<FirmwareUpdateError>
     reason: Schema.Literals([
       "busy",
       "wrongKey",
-      "hardwareLocked",
       "noBootloader",
       "doesNotFit",
       "rejected",
@@ -99,8 +98,6 @@ export class FirmwareUpdateError extends Schema.TaggedError<FirmwareUpdateError>
         return "A firmware update is already running.";
       case "wrongKey":
         return "That isn't the MK2 bootloader's wire key.";
-      case "hardwareLocked":
-        return "Flashing a real MK2 isn't enabled yet. Use the simulated device.";
       case "noBootloader":
         return "The bootloader didn't answer.";
       case "doesNotFit":
