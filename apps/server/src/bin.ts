@@ -16,6 +16,8 @@ const { values } = NodeUtil.parseArgs({
     "web-root": { type: "string" },
     // The desktop app passes Electron's userData directory.
     "data-dir": { type: "string" },
+    // Lets the firmware updater flash a real MK2; off unless asked for.
+    "unlock-hardware-flash": { type: "boolean", default: false },
   },
 });
 
@@ -44,4 +46,5 @@ Server.makeLayer({
   port: Number(values.port),
   webRoot: values.dev ? null : webRoot,
   dataDir: NodePath.resolve(values["data-dir"] ?? defaultDataDir()),
+  hardwareFlash: values["unlock-hardware-flash"],
 }).pipe(Layer.launch, NodeRuntime.runMain);

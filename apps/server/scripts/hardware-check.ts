@@ -14,12 +14,13 @@ import {
   type PidId,
   type ReaderState,
   type ReaderTarget,
-  type Vin,
+  Vin,
 } from "@fme/contracts";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { RpcClient, RpcSerialization } from "effect/rpc";
 import * as Socket from "effect/socket/Socket";
@@ -31,6 +32,8 @@ const { values } = NodeUtil.parseArgs({
     reader: { type: "string" },
   },
 });
+
+const isVin = Schema.is(Vin);
 
 const ProtocolLayer = RpcClient.layerProtocolSocket().pipe(
   Layer.provide(Socket.layerWebSocket(values.url)),
@@ -104,12 +107,22 @@ const program = Effect.gen(function* () {
     "0101=82 17 7F 00",
   );
   yield* check("Clear DTCs", client(WS_METHODS.clearDtcs, {}), "ATGET 0101", "0101=00 17 7F 00");
-  yield* check(
-    "VIN",
-    client(WS_METHODS.setVin, { vin: "WVWZZZ1JZXW000001" as Vin }),
-    "ATGET VIN",
-    "WVWZZZ1JZXW000001",
-  );
+  // V1.3 ships a 16-character default VIN, which the app can show but not set back.
+  const restorableVin = originalVin === null || isVin(originalVin);
+  if (restorableVin) {
+    yield* check(
+      "VIN",
+      client(WS_METHODS.setVin, { vin: "WVWZZZ1JZXW000001" as Vin }),
+      "ATGET VIN",
+      "WVWZZZ1JZXW000001",
+    );
+  } else {
+    results.push({
+      check: "VIN (skipped)",
+      ok: true,
+      detail: `"${originalVin}" isn't a 17-character VIN, so it couldn't be restored`,
+    });
+  }
   yield* check("Ignition off", client(WS_METHODS.setIgnition, { on: false }), "ATACC0", "OK");
   yield* check("Ignition on", client(WS_METHODS.setIgnition, { on: true }), "ATACC1", "OK");
   yield* check(
@@ -142,7 +155,9 @@ const program = Effect.gen(function* () {
   yield* client(WS_METHODS.setProtocol, { protocol: "CAN_11B_500K" });
   yield* client(WS_METHODS.setReadiness, { monitor: "misfire", supported: true, complete: true });
   yield* client(WS_METHODS.setReadiness, { monitor: "egrSystem", supported: true, complete: true });
-  if (originalVin !== null) yield* client(WS_METHODS.setVin, { vin: originalVin as Vin });
+  if (originalVin !== null && restorableVin) {
+    yield* client(WS_METHODS.setVin, { vin: originalVin as Vin });
+  }
 
   if (values.reader !== undefined) {
     const [, host, port] = /^([\w.-]+):(\d+)$/.exec(values.reader) ?? [];
