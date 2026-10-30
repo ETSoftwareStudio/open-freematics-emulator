@@ -1,7 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Result from "effect/Result";
 import { decodeReplyFrame, encodeCommandFrame } from "../firmware/bootloaderFrame.ts";
-import { SIMULATED_BANNER, SimulatedBootloader, SimulatedFirmware } from "./SimulatedDevice.ts";
+import {
+  SimulatedBootloader,
+  SimulatedElm327,
+  SimulatedFirmware,
+  simulatedBanner,
+} from "./SimulatedDevice.ts";
 
 // Replies recorded from a real MK2 (firmware V1.2) over USB.
 describe("SimulatedFirmware", () => {
@@ -27,7 +32,34 @@ describe("SimulatedFirmware", () => {
     ["ATGET VIN", "1HGCD5654VA061985\r\n"],
     ["atget vin", "1HGCD5654VA061985\r\n"],
   ])("answers %s like the firmware", (command, reply) => {
-    expect(new SimulatedFirmware().handle(command)).toBe(reply);
+    expect(new SimulatedFirmware("1.2").handle(command)).toBe(reply);
+  });
+
+  // Replies the same unit gave after it was flashed to V1.3 on 2026-10-30.
+  it.each([
+    ["ATGET VIN", "LSGGG54EXE105928\r\n"],
+    ["ATGET CALID", "JMB*36761500\r\n"],
+    ["ATSET DTC7=P0300", "OK\r"],
+    ["ATSET DTCA=U0100", "OK\r"],
+  ])("answers %s like V1.3", (command, reply) => {
+    expect(new SimulatedFirmware("1.3").handle(command)).toBe(reply);
+  });
+
+  it("prints V1.3's extra line after the info line on restart", () => {
+    const reply = new SimulatedFirmware("1.3").handle("ATR");
+    expect(reply).toContain(`${simulatedBanner("1.3")}\r\n00.00.02,00.01.08,`);
+    expect(reply.endsWith(",LSGGG54EXE105928\r\nSPN:00\r\n")).toBe(true);
+  });
+
+  it("reports pending and permanent codes to a scan tool on V1.3", () => {
+    const firmware = new SimulatedFirmware("1.3");
+    const adapter = new SimulatedElm327(firmware);
+    firmware.handle("ATSET DTC7=P0300,P0420");
+    firmware.handle("ATSET DTCA=U0100");
+    expect(adapter.handle("07")).toBe("47 02 03 00 04 20\r\r>");
+    expect(adapter.handle("0A")).toBe("4A 01 C1 00\r\r>");
+    expect(adapter.handle("04")).toBe("44\r\r>");
+    expect([firmware.pendingDtcs, firmware.permanentDtcs]).toEqual([[], ["U0100"]]);
   });
 
   it("stores raw and decimal PID values", () => {
@@ -45,10 +77,11 @@ describe("SimulatedFirmware", () => {
   });
 
   it("zeroes PIDs and prints the banner on reset", () => {
-    const firmware = new SimulatedFirmware();
+    const firmware = new SimulatedFirmware("1.2");
     firmware.handle("ATSET 010C=2000");
     const reply = firmware.handle("ATZ");
-    expect(reply.startsWith(`${SIMULATED_BANNER}\r\n${SIMULATED_BANNER}\r\n`)).toBe(true);
+    const banner = simulatedBanner("1.2");
+    expect(reply.startsWith(`${banner}\r\n${banner}\r\n`)).toBe(true);
     expect(reply.endsWith(",1HGCD5654VA061985\r\n")).toBe(true);
     expect(firmware.handle("ATGET 010C")).toBe("010C=00 00 \r");
   });

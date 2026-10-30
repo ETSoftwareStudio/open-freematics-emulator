@@ -12,8 +12,9 @@ import * as EmulatorSession from "../emulator/EmulatorSession.ts";
 import * as TrafficLog from "../traffic/TrafficLog.ts";
 import * as ObdReader from "./ObdReader.ts";
 
+// V1.2: V1.3's default VIN has 16 characters, which a scan tool doesn't take as a VIN.
 const TestLayer = Layer.mergeAll(EmulatorSession.layer, ObdReader.layer).pipe(
-  Layer.provideMerge(SimulatedDevice.layer),
+  Layer.provideMerge(SimulatedDevice.layerFor("1.2")),
   Layer.provide(Layer.mergeAll(SerialPorts.layer, TcpSockets.layer, TrafficLog.layer)),
 );
 

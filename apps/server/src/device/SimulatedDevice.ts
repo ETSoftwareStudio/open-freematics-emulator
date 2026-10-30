@@ -18,30 +18,67 @@ import {
 import { APPLICATION_BASE, FLASH_BASE } from "../firmware/flashPlan.ts";
 import type { DeviceLink } from "./DeviceLink.ts";
 
-export const SIMULATED_BANNER = "OBD-II EMULATOR V1.2";
-export const SIMULATED_DETAILS = "00.00.02,00.01.05,201910,SIMULATED0000001";
-const DEFAULT_VIN = "1HGCD5654VA061985";
+export type SimulatedVersion = "1.2" | "1.3";
+
+/** What each firmware printed and held by default on a real unit (V1.3 since 2026-10-30). */
+const FIRMWARES = {
+  "1.2": { hardware: "00.01.05", vin: "1HGCD5654VA061985", calibrationId: null, trailer: "" },
+  "1.3": {
+    hardware: "00.01.08",
+    // Sixteen characters, as V1.3 ships it.
+    vin: "LSGGG54EXE105928",
+    calibrationId: "JMB*36761500",
+    trailer: "SPN:00\r\n",
+  },
+} satisfies Record<SimulatedVersion, { calibrationId: string | null } & Record<string, unknown>>;
+
+export const simulatedBanner = (version: SimulatedVersion) => `OBD-II EMULATOR V${version}`;
 const SUPPORT_BITMAP = [0xff, 0xff, 0xff, 0xff];
 const DEFAULT_MONITOR_STATUS = [0x00, 0x07, 0x65, 0x00];
 const DTC_PATTERN = /^[PCBU][0-3][0-9A-F]{3}$/;
 const isProtocol = Schema.is(ObdProtocol);
 
 /**
- * In-memory model of the MK2 control interface, matching what a V1.2 unit was measured to do:
- * replies end in `\r` (VIN in `\r\n`), commands are case- and space-insensitive, CALID and Mode
- * 07/0A DTCs are unsupported, and resets zero every PID.
+ * In-memory model of the MK2 control interface, matching what real units were measured to do:
+ * replies end in `\r` (VIN in `\r\n`), commands are case- and space-insensitive, and resets
+ * zero every PID. V1.2 refuses CALID and Mode 07/0A DTCs; V1.3 takes them and prints an extra
+ * `SPN:00` line after the info line.
  */
 export class SimulatedFirmware {
+  version: SimulatedVersion;
   echo = false;
   ignition = true;
   vinEnabled = true;
   protocol: ObdProtocol = "CAN_11B_500K";
-  vin = DEFAULT_VIN;
+  vin: string;
+  calibrationId: string | null;
   storedDtcs: ReadonlyArray<string> = [];
+  pendingDtcs: ReadonlyArray<string> = [];
+  permanentDtcs: ReadonlyArray<string> = [];
   readonly pids = new Map<string, ReadonlyArray<number>>();
 
-  constructor() {
+  constructor(version: SimulatedVersion = "1.3") {
+    this.version = version;
+    this.vin = FIRMWARES[version].vin;
+    this.calibrationId = FIRMWARES[version].calibrationId;
     this.resetPids();
+  }
+
+  /** A completed flash: the new firmware's defaults replace the old ones, as on the real unit. */
+  install(version: SimulatedVersion) {
+    this.version = version;
+    this.vin = FIRMWARES[version].vin;
+    this.calibrationId = FIRMWARES[version].calibrationId;
+    this.storedDtcs = this.pendingDtcs = this.permanentDtcs = [];
+    this.resetPids();
+  }
+
+  get banner() {
+    return simulatedBanner(this.version);
+  }
+
+  get details() {
+    return `00.00.02,${FIRMWARES[this.version].hardware},201910,SIMULATED0000001`;
   }
 
   private resetPids() {
@@ -51,7 +88,7 @@ export class SimulatedFirmware {
   }
 
   private bootText() {
-    return `${SIMULATED_BANNER}\r\n${SIMULATED_DETAILS},${this.vin}\r\n`;
+    return `${this.banner}\r\n${this.details},${this.vin}\r\n${FIRMWARES[this.version].trailer}`;
   }
 
   /** Returns the exact text the firmware writes back for one received line. */
@@ -66,11 +103,12 @@ export class SimulatedFirmware {
     const command = line.replaceAll(" ", "").toUpperCase();
     const [, setKey, setValue] = /^ATSET(\w+)=(.*)$/.exec(command) ?? [];
     const [, getKey] = /^ATGET(\w+)$/.exec(command) ?? [];
+    const v13 = this.version === "1.3";
 
     switch (command) {
       case "ATZ":
         this.resetPids();
-        return `${SIMULATED_BANNER}\r\n${this.bootText()}`;
+        return `${this.banner}\r\n${this.bootText()}`;
       case "ATR":
         this.resetPids();
         return `System Restarting...\r\n${this.bootText()}`;
@@ -90,7 +128,7 @@ export class SimulatedFirmware {
       case "ATINF1":
         return ok;
       case "ATCLRDTC":
-        this.storedDtcs = [];
+        this.storedDtcs = this.pendingDtcs = this.permanentDtcs = [];
         return ok;
     }
 
@@ -106,10 +144,17 @@ export class SimulatedFirmware {
         this.vin = setValue;
         return ok;
       }
-      if (setKey === "DTC") {
+      const dtcList = setKey === "DTC" || (v13 && (setKey === "DTC7" || setKey === "DTCA"));
+      if (dtcList) {
         const codes = setValue.split(",").filter((code) => code.length > 0);
         if (codes.length > 6 || !codes.every((code) => DTC_PATTERN.test(code))) return error;
-        this.storedDtcs = codes;
+        if (setKey === "DTC") this.storedDtcs = codes;
+        else if (setKey === "DTC7") this.pendingDtcs = codes;
+        else this.permanentDtcs = codes;
+        return ok;
+      }
+      if (v13 && setKey === "CALID") {
+        this.calibrationId = setValue;
         return ok;
       }
       if (/^01[0-9A-F]{2}$/.test(setKey)) {
@@ -129,6 +174,7 @@ export class SimulatedFirmware {
 
     if (getKey !== undefined) {
       if (getKey === "VIN") return `${this.vin}\r\n`;
+      if (getKey === "CALID" && this.calibrationId !== null) return `${this.calibrationId}\r\n`;
       if (/^01[0-9A-F]{2}$/.test(getKey)) {
         const bytes =
           this.pids.get(getKey) ??
@@ -195,19 +241,21 @@ export class SimulatedElm327 {
       if (bytes === undefined || bytes.length === 0) return "NO DATA";
       return ["41", command.slice(2), ...bytes.map(hex)].join(" ");
     }
-    if (command === "03") {
-      const data = vehicle.storedDtcs.flatMap(encodeDtc);
-      return ["43", hex(vehicle.storedDtcs.length), ...data.map(hex)].join(" ");
-    }
+    const listCodes = (reply: string, codes: ReadonlyArray<string>) =>
+      [reply, hex(codes.length), ...codes.flatMap(encodeDtc).map(hex)].join(" ");
+    if (command === "03") return listCodes("43", vehicle.storedDtcs);
+    if (command === "07") return listCodes("47", vehicle.pendingDtcs);
+    if (command === "0A") return listCodes("4A", vehicle.permanentDtcs);
+    // Mode 04 clears stored and pending codes; permanent ones stay until the fault is gone.
     if (command === "04") {
-      vehicle.storedDtcs = [];
+      vehicle.storedDtcs = vehicle.pendingDtcs = [];
       return "44";
     }
-    if (command === "07" || command === "0A") return `${command === "07" ? "47" : "4A"} 00`;
     if (command === "0902") {
       if (!vehicle.vinEnabled) return "NO DATA";
       const bytes = [0x49, 0x02, 0x01, ...[...vehicle.vin].map((c) => c.charCodeAt(0))];
-      const frames = ["014", `0: ${bytes.slice(0, 6).map(hex).join(" ")}`];
+      const length = bytes.length.toString(16).toUpperCase().padStart(3, "0");
+      const frames = [length, `0: ${bytes.slice(0, 6).map(hex).join(" ")}`];
       for (let i = 6, n = 1; i < bytes.length; i += 7, n++) {
         frames.push(
           `${n}: ${bytes
@@ -245,6 +293,9 @@ export class SimulatedBootloader {
   /** A command whose reply follows an unrelated frame, which the updater must skip. */
   chattyCommand: number | null = null;
   readonly received: Array<number> = [];
+  /** Runs when the application starts after a flash that wrote something. */
+  onFlashed: (() => void) | null = null;
+  private wrote = false;
   private text = "";
   private frame: Array<number> | null = null;
 
@@ -333,6 +384,7 @@ export class SimulatedBootloader {
         if (view.getUint16(4) !== data.length || address < APPLICATION_BASE) return error;
         if (address + data.length > end) return error;
         this.flash.set(data, address - FLASH_BASE);
+        this.wrote = true;
         return ack;
       }
       case BootloaderCommand.writeCrc:
@@ -344,6 +396,8 @@ export class SimulatedBootloader {
         return Uint8Array.of(0xbb, 0x00, 0xee);
       case BootloaderCommand.run:
         this.mode = "off";
+        if (this.wrote) this.onFlashed?.();
+        this.wrote = false;
         return ack;
       default:
         return error;
@@ -362,41 +416,46 @@ export class SimulatedDevice extends Context.Service<
   }
 >()("@fme/server/device/SimulatedDevice") {}
 
-const make = Effect.sync(() => {
-  // One firmware per server, so state survives reconnects like a real device.
-  const firmware = new SimulatedFirmware();
-  const bootloader = new SimulatedBootloader();
-  const adapter = new SimulatedElm327(firmware);
-  const linkTo = Effect.fn("SimulatedDevice.link")(function* (
-    handle: (line: string) => string,
-    withBootloader: boolean,
-  ) {
-    const output = yield* Effect.acquireRelease(Queue.unbounded<string>(), Queue.shutdown);
-    const frame = makeLineFramer();
-    const write = (data: string | Uint8Array) =>
-      Effect.sync(() => {
-        const bytes = typeof data === "string" ? Buffer.from(data, "latin1") : data;
-        if (withBootloader && bootloader.mode !== "off") {
-          const reply = bootloader.receive(bytes);
-          if (reply.length > 0) Queue.offerUnsafe(output, Buffer.from(reply).toString("latin1"));
-          if (bootloader.mode !== "armed") return;
-        }
-        for (const line of frame(Buffer.from(bytes).toString("latin1"))) {
-          Queue.offerUnsafe(output, handle(line));
-          // A reset restarts into the bootloader, which then listens for the updater.
-          if (withBootloader && line.replaceAll(" ", "").toUpperCase() === "ATR") {
-            bootloader.mode = "armed";
+const make = (version: SimulatedVersion) =>
+  Effect.sync(() => {
+    // One firmware per server, so state survives reconnects like a real device.
+    const firmware = new SimulatedFirmware(version);
+    const bootloader = new SimulatedBootloader();
+    // The image isn't parsed: a simulated flash installs the official V1.3, as on the real unit.
+    bootloader.onFlashed = () => firmware.install("1.3");
+    const adapter = new SimulatedElm327(firmware);
+    const linkTo = Effect.fn("SimulatedDevice.link")(function* (
+      handle: (line: string) => string,
+      withBootloader: boolean,
+    ) {
+      const output = yield* Effect.acquireRelease(Queue.unbounded<string>(), Queue.shutdown);
+      const frame = makeLineFramer();
+      const write = (data: string | Uint8Array) =>
+        Effect.sync(() => {
+          const bytes = typeof data === "string" ? Buffer.from(data, "latin1") : data;
+          if (withBootloader && bootloader.mode !== "off") {
+            const reply = bootloader.receive(bytes);
+            if (reply.length > 0) Queue.offerUnsafe(output, Buffer.from(reply).toString("latin1"));
+            if (bootloader.mode !== "armed") return;
           }
-        }
-      });
-    return { write, chunks: Stream.fromQueue(output) } satisfies DeviceLink;
+          for (const line of frame(Buffer.from(bytes).toString("latin1"))) {
+            Queue.offerUnsafe(output, handle(line));
+            // A reset restarts into the bootloader, which then listens for the updater.
+            if (withBootloader && line.replaceAll(" ", "").toUpperCase() === "ATR") {
+              bootloader.mode = "armed";
+            }
+          }
+        });
+      return { write, chunks: Stream.fromQueue(output) } satisfies DeviceLink;
+    });
+    return SimulatedDevice.of({
+      firmware,
+      bootloader,
+      open: linkTo((line) => firmware.handle(line), true),
+      openAdapter: linkTo((line) => adapter.handle(line), false),
+    });
   });
-  return SimulatedDevice.of({
-    firmware,
-    bootloader,
-    open: linkTo((line) => firmware.handle(line), true),
-    openAdapter: linkTo((line) => adapter.handle(line), false),
-  });
-});
 
-export const layer = Layer.effect(SimulatedDevice, make);
+export const layerFor = (version: SimulatedVersion) => Layer.effect(SimulatedDevice, make(version));
+
+export const layer = layerFor("1.3");

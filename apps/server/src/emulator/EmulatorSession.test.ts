@@ -8,11 +8,14 @@ import * as SimulatedDevice from "../device/SimulatedDevice.ts";
 import * as TrafficLog from "../traffic/TrafficLog.ts";
 import * as EmulatorSession from "./EmulatorSession.ts";
 
-const TestLayer = EmulatorSession.layer.pipe(
-  Layer.provideMerge(SimulatedDevice.layer),
-  Layer.provide(SerialPorts.layer),
-  Layer.provideMerge(TrafficLog.layer),
-);
+// Most cases pin V1.2, which refuses CALID and Mode 07/0A codes; V1.3 has its own case.
+const layerOn = (version: SimulatedDevice.SimulatedVersion) =>
+  EmulatorSession.layer.pipe(
+    Layer.provideMerge(SimulatedDevice.layerFor(version)),
+    Layer.provide(SerialPorts.layer),
+    Layer.provideMerge(TrafficLog.layer),
+  );
+const TestLayer = layerOn("1.2");
 
 const stateOf = Effect.gen(function* () {
   const session = yield* EmulatorSession.EmulatorSession;
@@ -33,7 +36,7 @@ describe("EmulatorSession", () => {
         const state = yield* stateOf;
         expect(state.connection).toMatchObject({
           _tag: "connected",
-          device: { banner: SimulatedDevice.SIMULATED_BANNER },
+          device: { banner: SimulatedDevice.simulatedBanner("1.2") },
           unsent: [],
         });
         // V1.2 rejects pending/permanent codes and CALID; the probe must leave no codes behind.
@@ -148,6 +151,25 @@ describe("EmulatorSession offline edits", () => {
       yield* session.disconnect;
       expect((yield* stateOf).capabilities).toEqual({ dtcModes: ["03"], calibrationId: false });
     }).pipe(Effect.provide(TestLayer)),
+  );
+});
+
+describe("EmulatorSession on V1.3", () => {
+  it.effect("sends staged pending, permanent and calibration edits the firmware now takes", () =>
+    Effect.gen(function* () {
+      const session = yield* EmulatorSession.EmulatorSession;
+      const { firmware } = yield* SimulatedDevice.SimulatedDevice;
+      yield* session.setDtcs("07", ["P0420"] as Array<DtcCode>);
+      yield* session.setDtcs("0A", ["P0171"] as Array<DtcCode>);
+      yield* session.setCalibrationId("CAL-1234");
+      yield* session.connect({ _tag: "simulated" });
+
+      const state = yield* stateOf;
+      expect(state.connection).toMatchObject({ _tag: "connected", unsent: [] });
+      expect(state.capabilities).toEqual({ dtcModes: ["03", "07", "0A"], calibrationId: true });
+      expect([firmware.pendingDtcs, firmware.permanentDtcs]).toEqual([["P0420"], ["P0171"]]);
+      expect(state.calibrationId).toBe("CAL-1234");
+    }).pipe(Effect.provide(layerOn("1.3"))),
   );
 });
 

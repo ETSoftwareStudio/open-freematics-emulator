@@ -14,12 +14,14 @@ import { BootloaderCommand } from "./bootloaderFrame.ts";
 import { APPLICATION_BASE, FLASH_BASE } from "./flashPlan.ts";
 import * as FirmwareUpdater from "./FirmwareUpdater.ts";
 
-const TestLayer = FirmwareUpdater.layer.pipe(
-  Layer.provideMerge(EmulatorSession.layer),
-  Layer.provideMerge(SimulatedDevice.layer),
-  Layer.provide(SerialPorts.layer),
-  Layer.provide(TrafficLog.layer),
-);
+const layerOn = (version: SimulatedDevice.SimulatedVersion) =>
+  FirmwareUpdater.layer.pipe(
+    Layer.provideMerge(EmulatorSession.layer),
+    Layer.provideMerge(SimulatedDevice.layerFor(version)),
+    Layer.provide(SerialPorts.layer),
+    Layer.provide(TrafficLog.layer),
+  );
+const TestLayer = layerOn("1.3");
 
 // The FIPS-197 example key; the simulated bootloader takes whichever key the update uses.
 const TEST_KEY = "000102030405060708090a0b0c0d0e0f";
@@ -89,6 +91,15 @@ describe("FirmwareUpdater", () => {
       expect(bootloader.mode).toBe("off");
       expect(yield* stateOf).toMatchObject({ _tag: "succeeded", bytes: 2500, version: null });
     }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("leaves a simulated V1.2 unit on V1.3, with V1.3's defaults", () =>
+    Effect.gen(function* () {
+      const { firmware } = yield* SimulatedDevice.SimulatedDevice;
+      yield* updateOverTime(FirmwareUpdater.RESTART_DELAY);
+      expect([firmware.version, firmware.vin]).toEqual(["1.3", "LSGGG54EXE105928"]);
+      expect(firmware.handle("ATGET CALID")).toBe("JMB*36761500\r\n");
+    }).pipe(Effect.provide(layerOn("1.2"))),
   );
 
   it.effect("waits past other frames for an acknowledgement and doesn't wait on run", () =>
