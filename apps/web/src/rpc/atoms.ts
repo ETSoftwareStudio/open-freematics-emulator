@@ -47,6 +47,15 @@ export const firmwareUpdateAtom = EmulatorClient.runtime
   .atom(subscribe((client) => client(WS_METHODS.subscribeFirmwareUpdate, undefined)))
   .pipe(Atom.keepAlive, Atom.withLabel("firmware:update"));
 
+export const wireKeyStatusAtom = EmulatorClient.runtime
+  .atom(subscribe((client) => client(WS_METHODS.subscribeWireKey, undefined)))
+  .pipe(Atom.keepAlive, Atom.withLabel("firmware:wireKey"));
+
+/** Firmware images imported from the user's Freematics folder, newest first. */
+export const firmwareLibraryAtom = EmulatorClient.runtime
+  .atom(subscribe((client) => client(WS_METHODS.subscribeFirmwareLibrary, undefined)))
+  .pipe(Atom.keepAlive, Atom.withLabel("firmware:library"));
+
 export const portsAtom = EmulatorClient.query(WS_METHODS.listPorts, undefined, {
   reactivityKeys: ["ports"],
 });
@@ -77,3 +86,8 @@ export const savePresetAtom = EmulatorClient.mutation(WS_METHODS.savePreset);
 export const deletePresetAtom = EmulatorClient.mutation(WS_METHODS.deletePreset);
 export const inspectFirmwareAtom = EmulatorClient.mutation(WS_METHODS.inspectFirmware);
 export const updateFirmwareAtom = EmulatorClient.mutation(WS_METHODS.updateFirmware);
+export const importVendorFilesAtom = EmulatorClient.mutation(WS_METHODS.importVendorFiles);
+export const downloadVendorFirmwareAtom = EmulatorClient.mutation(
+  WS_METHODS.downloadVendorFirmware,
+);
+export const forgetWireKeyAtom = EmulatorClient.mutation(WS_METHODS.forgetWireKey);

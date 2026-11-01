@@ -68,6 +68,18 @@ With hardware: power the emulator from its 12 V adapter, plug in USB with a data
 its port. Current units use a CP2102 bridge (`/dev/cu.usbserial-*` on macOS), older ones a CH340
 (`/dev/cu.wchusbserial*`); macOS ships drivers for both.
 
+## Firmware import
+
+Open **Update Firmware…** and choose **Download from Freematics…** to fetch the official GUI
+package directly from Freematics. The app checks its pinned SHA-256, unpacks only the updater
+and firmware images without executing Windows code, and imports the wire key and images into
+its local data directory. Vendor files and keys are not bundled with this app. The temporary
+installer is deleted after import. If Freematics replaces the package, verification fails closed;
+**Import folder…** remains available for an installed or unpacked copy.
+
+Importing does not flash anything. Updating the selected device still requires the separate
+**Erase and Update** confirmation. Simulated updates do not validate real-device behavior.
+
 ## Goals
 
 **Primary: full control of the MK2 over USB**, verified against real hardware.

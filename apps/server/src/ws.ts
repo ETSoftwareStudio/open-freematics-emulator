@@ -3,7 +3,10 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { RpcSerialization, RpcServer } from "effect/rpc";
 import * as EmulatorSession from "./emulator/EmulatorSession.ts";
+import * as FirmwareLibrary from "./firmware/FirmwareLibrary.ts";
 import * as FirmwareUpdater from "./firmware/FirmwareUpdater.ts";
+import * as WireKeyStore from "./firmware/WireKeyStore.ts";
+import * as VendorPackage from "./firmware/VendorPackage.ts";
 import * as ObdReader from "./obd/ObdReader.ts";
 import * as PresetStore from "./presets/PresetStore.ts";
 import * as TrafficLog from "./traffic/TrafficLog.ts";
@@ -15,6 +18,9 @@ const handlers = WsRpcGroup.toLayer(
     const reader = yield* ObdReader.ObdReader;
     const presets = yield* PresetStore.PresetStore;
     const firmware = yield* FirmwareUpdater.FirmwareUpdater;
+    const wireKey = yield* WireKeyStore.WireKeyStore;
+    const library = yield* FirmwareLibrary.FirmwareLibrary;
+    const vendorPackage = yield* VendorPackage.VendorPackage;
     return WsRpcGroup.of({
       [WS_METHODS.listPorts]: () => session.listPorts,
       [WS_METHODS.connect]: ({ target }) => session.connect(target),
@@ -49,6 +55,11 @@ const handlers = WsRpcGroup.toLayer(
       [WS_METHODS.inspectFirmware]: ({ image }) => firmware.inspect(image),
       [WS_METHODS.updateFirmware]: (input) => firmware.update(input),
       [WS_METHODS.subscribeFirmwareUpdate]: () => firmware.state,
+      [WS_METHODS.subscribeWireKey]: () => wireKey.changes,
+      [WS_METHODS.importVendorFiles]: (input) => library.importVendorFiles(input),
+      [WS_METHODS.downloadVendorFirmware]: () => vendorPackage.download,
+      [WS_METHODS.subscribeFirmwareLibrary]: () => library.images,
+      [WS_METHODS.forgetWireKey]: () => wireKey.forget,
     });
   }),
 );

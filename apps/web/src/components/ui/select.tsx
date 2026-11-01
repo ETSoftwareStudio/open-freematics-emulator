@@ -122,7 +122,8 @@ function SelectPopup({
         alignItemWithTrigger={alignItemWithTrigger}
         alignOffset={alignOffset}
         anchor={anchor}
-        className="z-[130] select-none"
+        // Above dialogs (z-140/141), so a select inside one opens on top.
+        className="z-[150] select-none"
         data-slot="select-positioner"
         side={side}
         sideOffset={sideOffset}

@@ -5,7 +5,9 @@ import {
   decodeCommandFrame,
   decodeReplyFrame,
   encodeCommandFrame,
+  findWireKey,
   paddingLength,
+  wireKeyFingerprint,
 } from "./bootloaderFrame.ts";
 
 // The FIPS-197 example key, standing in for the wire key the user supplies.
@@ -80,5 +82,35 @@ describe("bootloaderFrame", () => {
   it("rejects a command whose ciphertext isn't whole blocks", () => {
     const result = decodeCommandFrame(bytes("bb070102030dee"), TEST_KEY);
     expect(Result.isFailure(result) && result.failure.reason).toBe("length");
+  });
+});
+
+describe("findWireKey", () => {
+  // A stand-in key planted in surrounding bytes; the scan is verified by its hash, so the real
+  // vendor key never has to be in the source to prove the mechanism.
+  const planted = Uint8Array.from({ length: 16 }, (_, i) => (i * 37 + 11) & 0xff);
+  const fingerprint = wireKeyFingerprint(planted);
+  const noise = (n: number, seed: number) =>
+    Uint8Array.from({ length: n }, (_, i) => (i * 131 + seed) & 0xff);
+  const buffer = Uint8Array.from([...noise(500, 3), ...planted, ...noise(700, 9)]);
+
+  it("recovers the window whose hash matches, byte for byte", () => {
+    const found = findWireKey(buffer, fingerprint);
+    expect(found).not.toBeNull();
+    expect(hex(found!)).toBe(hex(planted));
+  });
+
+  it("returns a fresh copy, not a view into the buffer", () => {
+    const found = findWireKey(buffer, fingerprint)!;
+    buffer[500] = buffer[500]! ^ 0xff;
+    expect(hex(found)).toBe(hex(planted));
+  });
+
+  it("returns null when no window matches", () => {
+    expect(findWireKey(noise(1000, 1), fingerprint)).toBeNull();
+  });
+
+  it("returns null for a buffer shorter than the key", () => {
+    expect(findWireKey(planted.subarray(0, 15), fingerprint)).toBeNull();
   });
 });

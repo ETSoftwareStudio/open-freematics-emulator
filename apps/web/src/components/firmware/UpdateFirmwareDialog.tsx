@@ -1,9 +1,13 @@
 import { Progress } from "@base-ui/react/progress";
 import {
   MAX_FIRMWARE_IMAGE_LENGTH,
+  MAX_VENDOR_BINARY_LENGTH,
+  type FirmwareImageSource,
   type FirmwareImageSummary,
   type FirmwareUpdateStage,
   type FirmwareUpdateState,
+  type ImportVendorFilesInput,
+  type LibraryImage,
 } from "@fme/contracts";
 import { LATEST_OFFICIAL_FIRMWARE } from "@fme/shared/firmware";
 import { CircleAlertIcon, CircleCheckIcon, SquareArrowOutUpRightIcon } from "lucide-react";
@@ -14,9 +18,21 @@ import { useFirmware } from "~/components/emulator/Firmware";
 import { PropertyRow } from "~/components/shell/PropertyRow";
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogFooter } from "~/components/ui/dialog";
-import { inspectFirmwareAtom, updateFirmwareAtom } from "~/rpc/atoms";
-import { useCall, useFirmwareUpdateState } from "~/rpc/hooks";
-import { MAX_KEY_FILE_BYTES, parseWireKeyFile } from "./wireKey";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
+import {
+  forgetWireKeyAtom,
+  downloadVendorFirmwareAtom,
+  importVendorFilesAtom,
+  inspectFirmwareAtom,
+  updateFirmwareAtom,
+} from "~/rpc/atoms";
+import { useCall, useFirmwareLibrary, useFirmwareUpdateState, useWireKeyStatus } from "~/rpc/hooks";
 
 const STAGES: Record<FirmwareUpdateStage, string> = {
   entering: "Restarting into the bootloader…",
@@ -48,10 +64,12 @@ const bytes = (count: number) => `${count.toLocaleString("en-US")} bytes`;
 
 function FileButton({
   accept,
+  disabled,
   onFile,
   children,
 }: {
   accept?: string;
+  disabled?: boolean;
   onFile: (file: File) => void;
   children: React.ReactNode;
 }) {
@@ -69,12 +87,76 @@ function FileButton({
           if (file !== undefined) onFile(file);
         }}
       />
-      <Button size="xs" variant="outline" onClick={() => input.current?.click()}>
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={disabled}
+        onClick={() => input.current?.click()}
+      >
         {children}
       </Button>
     </>
   );
 }
+
+/** Picks a whole folder; the browser hands over every file in it. */
+function FolderButton({
+  onFiles,
+  disabled,
+  children,
+}: {
+  onFiles: (files: ReadonlyArray<File>) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  const input = useRef<HTMLInputElement | null>(null);
+  return (
+    <>
+      <input
+        ref={(element) => {
+          input.current = element;
+          if (element !== null) element.webkitdirectory = true;
+        }}
+        type="file"
+        hidden
+        onChange={(event) => {
+          const files = [...(event.target.files ?? [])];
+          event.target.value = "";
+          if (files.length > 0) onFiles(files);
+        }}
+      />
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={disabled}
+        onClick={() => input.current?.click()}
+      >
+        {children}
+      </Button>
+    </>
+  );
+}
+
+/** FirmwareUpdater.exe (for the key) and the firmware .hex files; the rest of the folder is skipped. */
+const collectVendorFiles = async (
+  files: ReadonlyArray<File>,
+): Promise<ImportVendorFilesInput["files"]> => {
+  const wanted = files
+    .filter((file) => /^firmwareupdater\.exe$|\.hex$/i.test(file.name))
+    .filter((file) => file.size <= MAX_VENDOR_BINARY_LENGTH)
+    .slice(0, 32);
+  return Promise.all(
+    wanted.map(async (file) => ({
+      name: file.name,
+      bytes: new Uint8Array(await file.arrayBuffer()),
+    })),
+  );
+};
+
+const libraryLabel = (image: LibraryImage) =>
+  [image.version !== null ? `V${image.version}` : image.name, image.released]
+    .filter((part) => part !== null)
+    .join(" · ");
 
 function OfficialFirmwareLink() {
   return (
@@ -85,7 +167,7 @@ function OfficialFirmwareLink() {
       className="inline-flex items-center gap-1.5 font-medium text-info-foreground hover:underline"
     >
       <SquareArrowOutUpRightIcon className="size-3.5" />
-      Official firmware (in Freematics' GUI package)
+      Freematics GUI download (has FirmwareUpdater.exe and the firmware)
     </a>
   );
 }
@@ -117,7 +199,11 @@ function Outcome({
   );
 }
 
-/** The dialog's steps. Unmounts when the dialog closes, which drops the image and the key. */
+type Choice =
+  | { readonly kind: "library"; readonly name: string }
+  | { readonly kind: "file"; readonly image: Image };
+
+/** The dialog's steps. Unmounts when the dialog closes, which drops the chosen image. */
 function UpdateFlow({
   onBusyChange,
   onClose,
@@ -128,51 +214,138 @@ function UpdateFlow({
   const emulator = useEmulatorTarget();
   const firmware = useFirmware();
   const updateState = useFirmwareUpdateState();
+  const wireKey = useWireKeyStatus();
+  const library = useFirmwareLibrary();
   const inspect = useCall(inspectFirmwareAtom);
   const update = useCall(updateFirmwareAtom);
+  const importFiles = useCall(importVendorFilesAtom);
+  const downloadFirmware = useCall(downloadVendorFirmwareAtom);
+  const forgetKey = useCall(forgetWireKeyAtom);
   const [step, setStep] = useState<"choose" | "confirm" | "update">("choose");
-  const [image, setImage] = useState<Image | null>(null);
-  const [key, setKey] = useState<{ readonly name: string; readonly hex: string | null } | null>(
-    null,
-  );
+  const [choice, setChoice] = useState<Choice | null>(null);
+  const [vendor, setVendor] = useState<{ busy: boolean; note: string | null; error: boolean }>({
+    busy: false,
+    note: null,
+    error: false,
+  });
   const [run, setRun] = useState<Run>({ baseline: null, outcome: null });
   const serial = emulator.connectTarget._tag === "serial";
-  const ready = image?.status === "ready" && key?.hex != null;
+
+  // The newest library image is the default until something else is picked.
+  const chosen: Choice | null =
+    choice ?? (library[0] !== undefined ? { kind: "library", name: library[0].name } : null);
+  const libraryImage =
+    chosen?.kind === "library" ? (library.find((item) => item.name === chosen.name) ?? null) : null;
+  const fileImage = chosen?.kind === "file" ? chosen.image : null;
+  const summary = libraryImage ?? (fileImage?.status === "ready" ? fileImage.summary : null);
+  const chosenLabel = libraryImage !== null ? libraryLabel(libraryImage) : fileImage?.name;
 
   const pickImage = async (file: File) => {
     if (file.size > MAX_FIRMWARE_IMAGE_LENGTH) {
-      setImage({ name: file.name, status: "invalid", message: "This file is too large." });
+      setChoice({
+        kind: "file",
+        image: { name: file.name, status: "invalid", message: "This file is too large." },
+      });
       return;
     }
     const text = await file.text();
-    setImage({ name: file.name, status: "checking", text });
+    setChoice({ kind: "file", image: { name: file.name, status: "checking", text } });
     const result = await inspect({ image: text });
-    setImage((current) =>
-      current?.status !== "checking" || current.text !== text
+    setChoice((current) =>
+      current?.kind !== "file" || current.image.status !== "checking" || current.image.text !== text
         ? current
-        : result.ok
-          ? { name: file.name, status: "ready", text, summary: result.value }
-          : { name: file.name, status: "invalid", message: result.message },
+        : {
+            kind: "file",
+            image: result.ok
+              ? { name: file.name, status: "ready", text, summary: result.value }
+              : { name: file.name, status: "invalid", message: result.message },
+          },
     );
   };
 
-  const pickKey = async (file: File) => {
-    const hex =
-      file.size > MAX_KEY_FILE_BYTES
-        ? null
-        : parseWireKeyFile(new Uint8Array(await file.arrayBuffer()));
-    setKey({ name: file.name, hex });
+  const importFolder = async (files: ReadonlyArray<File>) => {
+    setVendor({ busy: true, note: null, error: false });
+    const collected = await collectVendorFiles(files);
+    if (collected.length === 0) {
+      setVendor({
+        busy: false,
+        note: "That folder has no FirmwareUpdater.exe or firmware .hex files.",
+        error: true,
+      });
+      return;
+    }
+    const result = await importFiles({ files: collected });
+    if (!result.ok) {
+      setVendor({ busy: false, note: result.message, error: true });
+      return;
+    }
+    setChoice(null);
+    setVendor({
+      busy: false,
+      note:
+        result.value.imagesAdded === 0
+          ? "No firmware images were in that folder."
+          : `Found ${result.value.imagesAdded} firmware ${result.value.imagesAdded === 1 ? "image" : "images"}.`,
+      error: false,
+    });
   };
 
+  const replaceKey = async () => {
+    setVendor({ busy: true, note: null, error: false });
+    const result = await forgetKey(undefined);
+    setVendor({ busy: false, note: result.ok ? null : result.message, error: !result.ok });
+  };
+
+  const downloadVendor = async () => {
+    setVendor({
+      busy: true,
+      note: "Downloading and unpacking Freematics GUI (43 MB)…",
+      error: false,
+    });
+    onBusyChange(true);
+    try {
+      const result = await downloadFirmware(undefined);
+      if (!result.ok) {
+        setVendor({ busy: false, note: result.message, error: true });
+        return;
+      }
+      setChoice(null);
+      setVendor({
+        busy: false,
+        note: `Imported ${result.value.imagesAdded} firmware images. Nothing has been flashed.`,
+        error: false,
+      });
+    } finally {
+      onBusyChange(false);
+    }
+  };
+
+  const downloadButton = (
+    <Button
+      size="xs"
+      variant="outline"
+      disabled={vendor.busy}
+      onClick={() => void downloadVendor()}
+    >
+      Download from Freematics…
+    </Button>
+  );
+
   const start = async () => {
-    if (image?.status !== "ready" || key?.hex == null) return;
+    const source: FirmwareImageSource | null =
+      libraryImage !== null
+        ? { _tag: "library", name: libraryImage.name }
+        : fileImage?.status === "ready"
+          ? { _tag: "file", text: fileImage.text }
+          : null;
+    if (source === null) return;
     const target = emulator.connectTarget;
     // Keeps the picker on the flashed device once the update disconnects it.
     emulator.choose(emulator.selected);
     setRun({ baseline: updateState, outcome: null });
     setStep("update");
     onBusyChange(true);
-    const result = await update({ target, image: image.text, wireKey: key.hex });
+    const result = await update({ target, image: source });
     onBusyChange(false);
     setRun((current) => ({
       ...current,
@@ -180,50 +353,126 @@ function UpdateFlow({
     }));
   };
 
+  const vendorNote =
+    vendor.note !== null ? (
+      <p className={vendor.error ? "text-error-foreground" : "text-muted-foreground"}>
+        {vendor.note}
+      </p>
+    ) : null;
+
+  // The key comes first: until one is stored, the dialog only asks for the Freematics folder.
+  if (step === "choose" && wireKey?._tag !== "present") {
+    return (
+      <>
+        <div className="mt-3 flex flex-col gap-2">
+          <p className="text-foreground">First, import the Freematics updater and firmware.</p>
+          <p className="text-muted-foreground">
+            Download directly from Freematics, or choose an installed or unpacked GUI folder. The
+            app verifies and unpacks the download without running the Windows installer, then stores
+            the wire key and firmware locally. Nothing is flashed at this step.
+          </p>
+          {downloadButton}
+          <PropertyRow label="Freematics folder">
+            <FolderButton disabled={vendor.busy} onFiles={(files) => void importFolder(files)}>
+              {vendor.busy ? "Reading…" : "Choose…"}
+            </FolderButton>
+          </PropertyRow>
+          {vendorNote}
+          <OfficialFirmwareLink />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="xs" disabled={vendor.busy} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button size="xs" disabled>
+            Continue…
+          </Button>
+        </DialogFooter>
+      </>
+    );
+  }
+
   if (step === "choose") {
     return (
       <>
         <div className="mt-3 flex flex-col gap-2">
           <PropertyRow label="Device">{emulator.label}</PropertyRow>
-          <div>
-            <PropertyRow label="Firmware image" detail={image?.name ?? "Intel HEX (.hex)"}>
-              <FileButton accept=".hex" onFile={(file) => void pickImage(file)}>
-                {image === null ? "Choose…" : "Change…"}
-              </FileButton>
+          <div className="flex flex-col gap-1.5">
+            <PropertyRow label="Firmware image">
+              {library.length > 0 ? (
+                <Select
+                  disabled={vendor.busy}
+                  value={libraryImage?.name ?? null}
+                  onValueChange={(value) => {
+                    if (typeof value === "string") setChoice({ kind: "library", name: value });
+                  }}
+                >
+                  <SelectTrigger size="compact" aria-label="Firmware image">
+                    <SelectValue>
+                      {libraryImage !== null ? libraryLabel(libraryImage) : (fileImage?.name ?? "")}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup alignItemWithTrigger={false}>
+                    {library.map((item, index) => (
+                      <SelectItem key={item.name} value={item.name}>
+                        {libraryLabel(item)}
+                        {index === 0 ? " (newest)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              ) : (
+                <span className="text-muted-foreground">{fileImage?.name ?? "None imported"}</span>
+              )}
             </PropertyRow>
-            {image?.status === "checking" ? (
+            {fileImage?.status === "checking" ? (
               <p className="text-muted-foreground">Checking…</p>
-            ) : image?.status === "ready" ? (
+            ) : fileImage?.status === "invalid" ? (
+              <p className="text-error-foreground">{fileImage.message}</p>
+            ) : summary !== null ? (
               <p className="text-muted-foreground tabular-nums">
-                {hex(image.summary.start)}–{hex(image.summary.end - 1)} ·{" "}
-                {bytes(image.summary.bytes)}
+                {hex(summary.start)}–{hex(summary.end - 1)} · {bytes(summary.bytes)}
               </p>
-            ) : image?.status === "invalid" ? (
-              <p className="text-error-foreground">{image.message}</p>
             ) : null}
-          </div>
-          <div>
-            <PropertyRow label="Wire key" detail={key?.name ?? "16 bytes, or 32 hex digits"}>
-              <FileButton onFile={(file) => void pickKey(file)}>
-                {key === null ? "Choose…" : "Change…"}
+            <div className="flex gap-2">
+              <FolderButton disabled={vendor.busy} onFiles={(files) => void importFolder(files)}>
+                {vendor.busy ? "Reading…" : "Import folder…"}
+              </FolderButton>
+              <FileButton
+                disabled={vendor.busy}
+                accept=".hex"
+                onFile={(file) => void pickImage(file)}
+              >
+                Other file…
               </FileButton>
-            </PropertyRow>
-            {key !== null && key.hex === null ? (
-              <p className="text-error-foreground">
-                This file isn't a 16-byte key or 32 hex digits.
-              </p>
-            ) : null}
-            <p className="text-subtle-foreground">
-              The key is sent with this update only. It isn't stored.
-            </p>
+            </div>
+            {vendorNote}
+            {downloadButton}
           </div>
+          <PropertyRow
+            label="Wire key"
+            detail={wireKey?._tag === "present" ? wireKey.fingerprint.slice(0, 12) : undefined}
+          >
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={vendor.busy}
+              onClick={() => void replaceKey()}
+            >
+              Replace…
+            </Button>
+          </PropertyRow>
           <OfficialFirmwareLink />
         </div>
         <DialogFooter>
-          <Button variant="outline" size="xs" onClick={onClose}>
+          <Button variant="outline" size="xs" disabled={vendor.busy} onClick={onClose}>
             Cancel
           </Button>
-          <Button size="xs" disabled={!ready} onClick={() => setStep("confirm")}>
+          <Button
+            size="xs"
+            disabled={summary === null || vendor.busy}
+            onClick={() => setStep("confirm")}
+          >
             Continue…
           </Button>
         </DialogFooter>
@@ -236,7 +485,7 @@ function UpdateFlow({
       <>
         <div className="mt-3 flex flex-col gap-1.5">
           <p className="text-foreground">
-            Update {emulator.label} with {image?.name}?
+            Update {emulator.label} with {chosenLabel}?
           </p>
           <p className="text-muted-foreground">
             This disconnects the emulator, erases its application and writes the new one. The
@@ -294,7 +543,7 @@ function UpdateFlow({
 
   if (run.outcome.ok) {
     const result = live?._tag === "succeeded" ? live : null;
-    const written = result?.bytes ?? (image?.status === "ready" ? image.summary.bytes : null);
+    const written = result?.bytes ?? summary?.bytes ?? null;
     return (
       <>
         <Outcome tone="success" title="Firmware updated.">

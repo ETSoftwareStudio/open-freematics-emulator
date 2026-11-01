@@ -114,6 +114,31 @@ export const encodeReplyFrame = (command: number, payload: Uint8Array): Uint8Arr
 export const wireKeyFingerprint = (wireKey: Uint8Array) =>
   NodeCrypto.createHash("sha256").update(wireKey).digest("hex");
 
+export const WIRE_KEY_LENGTH = 16;
+
+/**
+ * SHA-256 of the MK2 bootloader's wire key. The key itself is never in the source; this hash both
+ * recognizes a supplied key and lets {@link findWireKey} recover the key from the vendor tool.
+ */
+export const VENDOR_WIRE_KEY_SHA256 =
+  "2d892f5f5ff0f613b75d1feea642910b064e7f35a5e616264dc039c90a082243";
+
+/**
+ * Scans a buffer for the 16-byte window whose SHA-256 matches `sha256`, returning a copy of it or
+ * `null`. Finding it by hash (not a fixed offset) is self-verifying and survives vendor-version
+ * layout shifts; the match is proof the right bytes were found.
+ */
+export const findWireKey = (
+  data: Uint8Array,
+  sha256: string = VENDOR_WIRE_KEY_SHA256,
+): Uint8Array | null => {
+  for (let i = 0; i + WIRE_KEY_LENGTH <= data.length; i++) {
+    const window = data.subarray(i, i + WIRE_KEY_LENGTH);
+    if (wireKeyFingerprint(window) === sha256) return Uint8Array.from(window);
+  }
+  return null;
+};
+
 /** Checks delimiters, escapes and checksum; the payload is whatever follows the command byte. */
 export const decodeReplyFrame = (
   frame: Uint8Array,

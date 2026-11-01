@@ -1,9 +1,12 @@
-import type { FirmwareUpdateState } from "@fme/contracts";
+import type { FirmwareUpdateInput, FirmwareUpdateState } from "@fme/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as SerialPorts from "../device/SerialPorts.ts";
@@ -12,15 +15,39 @@ import * as EmulatorSession from "../emulator/EmulatorSession.ts";
 import * as TrafficLog from "../traffic/TrafficLog.ts";
 import { BootloaderCommand } from "./bootloaderFrame.ts";
 import { APPLICATION_BASE, FLASH_BASE } from "./flashPlan.ts";
+import * as FirmwareLibrary from "./FirmwareLibrary.ts";
 import * as FirmwareUpdater from "./FirmwareUpdater.ts";
+import * as WireKeyStore from "./WireKeyStore.ts";
 
-const layerOn = (version: SimulatedDevice.SimulatedVersion) =>
-  FirmwareUpdater.layer.pipe(
-    Layer.provideMerge(EmulatorSession.layer),
-    Layer.provideMerge(SimulatedDevice.layerFor(version)),
-    Layer.provide(SerialPorts.layer),
-    Layer.provide(TrafficLog.layer),
-  );
+const tempDataDir = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  return path.join(yield* fileSystem.makeTempDirectoryScoped(), "data");
+});
+
+const layerOn = (
+  version: SimulatedDevice.SimulatedVersion,
+  seed: { readonly wireKey?: Uint8Array } = {},
+) =>
+  Layer.unwrap(
+    Effect.gen(function* () {
+      const dataDir = yield* tempDataDir;
+      if (seed.wireKey !== undefined) {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        yield* fileSystem.makeDirectory(dataDir, { recursive: true });
+        yield* fileSystem.writeFile(path.join(dataDir, "wire-key.bin"), seed.wireKey);
+      }
+      return FirmwareUpdater.layer.pipe(
+        Layer.provideMerge(FirmwareLibrary.layer({ dataDir })),
+        Layer.provide(WireKeyStore.layer({ dataDir })),
+        Layer.provideMerge(EmulatorSession.layer),
+        Layer.provideMerge(SimulatedDevice.layerFor(version)),
+        Layer.provide(SerialPorts.layer),
+        Layer.provide(TrafficLog.layer),
+      );
+    }),
+  ).pipe(Layer.provide(NodeServices.layer));
 const TestLayer = layerOn("1.3");
 
 // The FIPS-197 example key; the simulated bootloader takes whichever key the update uses.
@@ -45,7 +72,11 @@ const hexFile = (address: number, data: Uint8Array) => {
 };
 
 const IMAGE = hexFile(APPLICATION_BASE, APPLICATION);
-const simulatedUpdate = { target: { _tag: "simulated" }, image: IMAGE, wireKey: TEST_KEY } as const;
+const simulatedUpdate: FirmwareUpdateInput = {
+  target: { _tag: "simulated" },
+  image: { _tag: "file", text: IMAGE },
+  wireKey: TEST_KEY,
+};
 
 const stateOf = Effect.gen(function* () {
   const updater = yield* FirmwareUpdater.FirmwareUpdater;
@@ -54,10 +85,10 @@ const stateOf = Effect.gen(function* () {
 });
 
 /** Runs an update while the test clock covers the restart and any handshake retries. */
-const updateOverTime = (elapsed: Duration.Duration) =>
+const updateOverTime = (elapsed: Duration.Duration, input = simulatedUpdate) =>
   Effect.gen(function* () {
     const updater = yield* FirmwareUpdater.FirmwareUpdater;
-    const running = yield* updater.update(simulatedUpdate).pipe(Effect.exit, Effect.forkChild);
+    const running = yield* updater.update(input).pipe(Effect.exit, Effect.forkChild);
     // The simulated unit, like a real one, sends no readable application info.
     const finishing = Duration.sum(FirmwareUpdater.REPLY_TIMEOUT, FirmwareUpdater.RUN_SETTLE);
     yield* TestClock.adjust(Duration.sum(elapsed, finishing));
@@ -183,7 +214,7 @@ describe("FirmwareUpdater", () => {
       const updater = yield* FirmwareUpdater.FirmwareUpdater;
       const tooBig = hexFile(APPLICATION_BASE, new Uint8Array(0x1d000));
       const failed = yield* updater
-        .update({ ...simulatedUpdate, image: tooBig })
+        .update({ ...simulatedUpdate, image: { _tag: "file", text: tooBig } })
         .pipe(Effect.flip, Effect.forkChild);
       yield* TestClock.adjust(FirmwareUpdater.RESTART_DELAY);
       expect(yield* Fiber.join(failed)).toMatchObject({ reason: "doesNotFit" });
@@ -234,6 +265,52 @@ describe("FirmwareUpdater", () => {
       });
       const error = yield* updater.inspect(hexFile(FLASH_BASE, APPLICATION)).pipe(Effect.flip);
       expect(error).toMatchObject({ _tag: "FirmwareImageError", reason: "outsideApplication" });
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("flashes an image from the library with the stored key", () =>
+    Effect.gen(function* () {
+      const library = yield* FirmwareLibrary.FirmwareLibrary;
+      const { bootloader } = yield* SimulatedDevice.SimulatedDevice;
+      const name = "Firmware_MK2_20250311.hex";
+      const added = yield* library.importVendorFiles({
+        files: [{ name, bytes: new TextEncoder().encode(IMAGE) }],
+      });
+      expect(added).toEqual({ keyFound: false, imagesAdded: 1 });
+
+      const exit = yield* updateOverTime(FirmwareUpdater.RESTART_DELAY, {
+        target: { _tag: "simulated" },
+        image: { _tag: "library", name },
+      });
+      expect(exit._tag).toBe("Success");
+      const application = offset(APPLICATION_BASE);
+      expect(bootloader.flash.subarray(application, application + APPLICATION.length)).toEqual(
+        APPLICATION,
+      );
+    }).pipe(Effect.provide(layerOn("1.3", { wireKey: Buffer.from(TEST_KEY, "hex") }))),
+  );
+
+  it.effect("rejects a library image that isn't there", () =>
+    Effect.gen(function* () {
+      const updater = yield* FirmwareUpdater.FirmwareUpdater;
+      const error = yield* Effect.flip(
+        updater.update({
+          target: { _tag: "simulated" },
+          image: { _tag: "library", name: "Missing.hex" },
+          wireKey: TEST_KEY,
+        }),
+      );
+      expect(error).toMatchObject({ _tag: "FirmwareImageError", reason: "notInLibrary" });
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("won't flash from the library without a key", () =>
+    Effect.gen(function* () {
+      const updater = yield* FirmwareUpdater.FirmwareUpdater;
+      const error = yield* Effect.flip(
+        updater.update({ target: { _tag: "simulated" }, image: { _tag: "file", text: IMAGE } }),
+      );
+      expect(error).toMatchObject({ _tag: "FirmwareUpdateError", reason: "noKey" });
     }).pipe(Effect.provide(TestLayer)),
   );
 });

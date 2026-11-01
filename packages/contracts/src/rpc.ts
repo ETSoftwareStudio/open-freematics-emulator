@@ -25,7 +25,14 @@ import {
   FirmwareUpdateError,
   FirmwareUpdateInput,
   FirmwareUpdateState,
+  ImportVendorFilesInput,
   InspectFirmwareInput,
+  LibraryImage,
+  VendorImportError,
+  VendorDownloadError,
+  VendorImportResult,
+  WireKeyError,
+  WireKeyStatus,
 } from "./firmware.ts";
 import {
   Preset,
@@ -74,6 +81,11 @@ export const WS_METHODS = {
   inspectFirmware: "firmware.inspect",
   updateFirmware: "firmware.update",
   subscribeFirmwareUpdate: "firmware.subscribeUpdate",
+  subscribeWireKey: "firmware.subscribeWireKey",
+  importVendorFiles: "firmware.importVendorFiles",
+  downloadVendorFirmware: "firmware.downloadVendorFirmware",
+  subscribeFirmwareLibrary: "firmware.subscribeLibrary",
+  forgetWireKey: "firmware.forgetWireKey",
 } as const;
 
 const operation = <const Tag extends string, P extends Schema.Top>(tag: Tag, payload: P) =>
@@ -141,4 +153,19 @@ export const WsRpcGroup = RpcGroup.make(
     error: Schema.Union([FirmwareImageError, FirmwareUpdateError]),
   }),
   Rpc.make(WS_METHODS.subscribeFirmwareUpdate, { success: FirmwareUpdateState, stream: true }),
+  Rpc.make(WS_METHODS.subscribeWireKey, { success: WireKeyStatus, stream: true }),
+  Rpc.make(WS_METHODS.importVendorFiles, {
+    payload: ImportVendorFilesInput,
+    success: VendorImportResult,
+    error: VendorImportError,
+  }),
+  Rpc.make(WS_METHODS.downloadVendorFirmware, {
+    success: VendorImportResult,
+    error: Schema.Union([VendorDownloadError, VendorImportError]),
+  }),
+  Rpc.make(WS_METHODS.subscribeFirmwareLibrary, {
+    success: Schema.Array(LibraryImage),
+    stream: true,
+  }),
+  Rpc.make(WS_METHODS.forgetWireKey, { error: WireKeyError }),
 );

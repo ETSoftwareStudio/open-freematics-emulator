@@ -4,11 +4,15 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Layer from "effect/Layer";
 import { HttpRouter } from "effect/http";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as SerialPorts from "./device/SerialPorts.ts";
 import * as SimulatedDevice from "./device/SimulatedDevice.ts";
 import * as TcpSockets from "./device/TcpSockets.ts";
 import * as EmulatorSession from "./emulator/EmulatorSession.ts";
+import * as FirmwareLibrary from "./firmware/FirmwareLibrary.ts";
 import * as FirmwareUpdater from "./firmware/FirmwareUpdater.ts";
+import * as WireKeyStore from "./firmware/WireKeyStore.ts";
+import * as VendorPackage from "./firmware/VendorPackage.ts";
 import * as Http from "./http.ts";
 import * as ObdReader from "./obd/ObdReader.ts";
 import * as PresetStore from "./presets/PresetStore.ts";
@@ -34,6 +38,14 @@ export const makeLayer = (options: ServerOptions) =>
   ).pipe(
     Layer.provide(PresetStore.layer({ dataDir: options.dataDir })),
     Layer.provide(FirmwareUpdater.layer),
+    Layer.provide(
+      VendorPackage.layer().pipe(
+        Layer.provide(FetchHttpClient.layer),
+        Layer.provide(Layer.succeed(FetchHttpClient.RequestInit, { redirect: "error" })),
+      ),
+    ),
+    Layer.provide(FirmwareLibrary.layer({ dataDir: options.dataDir })),
+    Layer.provide(WireKeyStore.layer({ dataDir: options.dataDir })),
     Layer.provide(Layer.mergeAll(EmulatorSession.layer, ObdReader.layer)),
     Layer.provide(SimulatedDevice.layer),
     Layer.provide(Layer.mergeAll(SerialPorts.layer, TcpSockets.layer)),

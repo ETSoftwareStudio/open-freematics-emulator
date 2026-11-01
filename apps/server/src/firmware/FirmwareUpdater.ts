@@ -31,11 +31,11 @@ import {
   decodeReplyFrame,
   encodeCommandFrame,
   PROBE_FRAME,
+  VENDOR_WIRE_KEY_SHA256,
   wireKeyFingerprint,
   type ReplyFrame,
 } from "./bootloaderFrame.ts";
 import {
-  APPLICATION_BASE,
   erasePayload,
   finalizerCrc,
   finalizerPayload,
@@ -43,10 +43,10 @@ import {
   runPayload,
   writePayload,
 } from "./flashPlan.ts";
-import { parseIntelHex, type FirmwareImage } from "./intelHex.ts";
-
-/** SHA-256 of the vendor bootloader's wire key. The key itself is never in this repository. */
-const VENDOR_WIRE_KEY_SHA256 = "2d892f5f5ff0f613b75d1feea642910b064e7f35a5e616264dc039c90a082243";
+import * as FirmwareLibrary from "./FirmwareLibrary.ts";
+import { imageBytes, readFirmwareImage, summarizeImage } from "./firmwareImage.ts";
+import type { FirmwareImage } from "./intelHex.ts";
+import * as WireKeyStore from "./WireKeyStore.ts";
 
 // The vendor updater's waits, except the erase: it allows 3 s, and waiting longer is harmless.
 export const RESTART_DELAY = Duration.seconds(1);
@@ -102,18 +102,10 @@ interface BootloaderConnection {
 
 const linkError = () => new FirmwareUpdateError({ reason: "link" });
 
-const readImage = (text: string): Effect.Effect<FirmwareImage, FirmwareImageError> => {
-  const parsed = parseIntelHex(text);
-  if (Result.isFailure(parsed)) {
-    return Effect.fail(new FirmwareImageError({ reason: "unreadable", line: parsed.failure.line }));
-  }
-  return parsed.success.segments[0]?.address === APPLICATION_BASE
-    ? Effect.succeed(parsed.success)
-    : Effect.fail(new FirmwareImageError({ reason: "outsideApplication", line: null }));
+const readImage = (text: string) => {
+  const parsed = readFirmwareImage(text);
+  return Result.isFailure(parsed) ? Effect.fail(parsed.failure) : Effect.succeed(parsed.success);
 };
-
-const imageBytes = (image: FirmwareImage) =>
-  image.segments.reduce((sum, segment) => sum + segment.data.length, 0);
 
 const commandName = (command: number) =>
   Object.entries(BootloaderCommand).find(([, value]) => value === command)?.[0] ??
@@ -143,6 +135,8 @@ const make = Effect.gen(function* () {
   const simulated = yield* SimulatedDevice.SimulatedDevice;
   const session = yield* EmulatorSession.EmulatorSession;
   const traffic = yield* TrafficLog.TrafficLog;
+  const wireKeyStore = yield* WireKeyStore.WireKeyStore;
+  const library = yield* FirmwareLibrary.FirmwareLibrary;
   const serviceScope = yield* Effect.scope;
   const state = yield* SubscriptionRef.make<FirmwareUpdateState>({ _tag: "idle" });
   const lock = yield* Semaphore.make(1);
@@ -403,8 +397,15 @@ const make = Effect.gen(function* () {
 
   const update = Effect.fn("FirmwareUpdater.update")(function* (input: FirmwareUpdateInput) {
     yield* Effect.annotateCurrentSpan("target", input.target._tag);
-    const image = yield* readImage(input.image);
-    const wireKey = Uint8Array.from(Buffer.from(input.wireKey, "hex"));
+    const image = yield* readImage(
+      input.image._tag === "file" ? input.image.text : yield* library.read(input.image.name),
+    );
+    // A supplied key is used as-is; otherwise the one stored from the vendor tool.
+    const wireKey =
+      input.wireKey !== undefined
+        ? Uint8Array.from(Buffer.from(input.wireKey, "hex"))
+        : yield* wireKeyStore.read;
+    if (wireKey === null) return yield* new FirmwareUpdateError({ reason: "noKey" });
     // A real unit only ever sees frames under the vendor key.
     if (input.target._tag === "serial" && wireKeyFingerprint(wireKey) !== VENDOR_WIRE_KEY_SHA256) {
       return yield* new FirmwareUpdateError({ reason: "wrongKey" });
@@ -417,7 +418,8 @@ const make = Effect.gen(function* () {
         return yield* Effect.gen(function* () {
           yield* session.disconnect;
           // The simulated unit has no real key; it takes the one this update uses.
-          if (input.target._tag === "simulated") simulated.bootloader.wireKey = wireKey;
+          if (input.target._tag === "simulated")
+            simulated.bootloader.wireKey = Uint8Array.from(wireKey);
           yield* flash(input.target, image, wireKey);
         }).pipe(Effect.ensuring(lock.release(1)), Effect.forkIn(serviceScope));
       }),
@@ -426,13 +428,7 @@ const make = Effect.gen(function* () {
   });
 
   const inspect = Effect.fn("FirmwareUpdater.inspect")(function* (text: string) {
-    const image = yield* readImage(text);
-    const last = image.segments[image.segments.length - 1]!;
-    return {
-      start: APPLICATION_BASE,
-      end: last.address + last.data.length,
-      bytes: imageBytes(image),
-    };
+    return summarizeImage(yield* readImage(text));
   });
 
   return FirmwareUpdater.of({ state: SubscriptionRef.changes(state), inspect, update });

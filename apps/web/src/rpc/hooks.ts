@@ -3,7 +3,13 @@ import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
-import { emulatorStateAtom, firmwareUpdateAtom, readerStateAtom } from "./atoms.ts";
+import {
+  emulatorStateAtom,
+  firmwareLibraryAtom,
+  firmwareUpdateAtom,
+  readerStateAtom,
+  wireKeyStatusAtom,
+} from "./atoms.ts";
 
 /** The last failed command, shown in the banner until dismissed or replaced. */
 export const lastErrorAtom = Atom.make<string | null>(null).pipe(Atom.keepAlive);
@@ -24,6 +30,16 @@ export function useReaderState() {
 export function useFirmwareUpdateState() {
   const result = useAtomValue(firmwareUpdateAtom);
   return AsyncResult.isSuccess(result) ? result.value : null;
+}
+
+export function useWireKeyStatus() {
+  const result = useAtomValue(wireKeyStatusAtom);
+  return AsyncResult.isSuccess(result) ? result.value : null;
+}
+
+export function useFirmwareLibrary() {
+  const result = useAtomValue(firmwareLibraryAtom);
+  return AsyncResult.isSuccess(result) ? result.value : [];
 }
 
 const describe = (cause: Cause.Cause<unknown>) => {

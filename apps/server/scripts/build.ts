@@ -11,5 +11,9 @@ await build({
   format: "esm",
   platform: "node",
   target: "node24",
-  deps: { neverBundle: ["serialport"], alwaysBundle: [/^(?!serialport)/], onlyBundle: false },
+  deps: {
+    neverBundle: ["serialport", "7z-wasm"],
+    alwaysBundle: [/^(?!(serialport|7z-wasm))/],
+    onlyBundle: false,
+  },
 });
