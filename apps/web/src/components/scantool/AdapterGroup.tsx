@@ -3,7 +3,6 @@ import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import {
   BluetoothIcon,
-  CableIcon,
   CpuIcon,
   PlugZapIcon,
   RotateCcwIcon,
@@ -32,6 +31,7 @@ import {
   readerReadDtcsAtom,
   readerReadVinAtom,
 } from "~/rpc/atoms";
+import { PortLabel, portName } from "~/lib/ports";
 import { useCommand, useEmulatorState } from "~/rpc/hooks";
 import { ButtonRow, Facts } from "./parts";
 
@@ -58,15 +58,9 @@ const PROTOCOL_NAMES: Record<string, string> = {
   A: "SAE J1939",
 };
 
-const portName = (path: string) => path.replace("/dev/", "");
-
-/** Bluetooth SPP ports have no USB IDs; macOS's incoming port is never an adapter. */
+/** Ports of unknown transport are listed under Bluetooth. */
 const linkPorts = (ports: ReadonlyArray<SerialPortInfo>, link: Link) =>
-  ports.filter((port) =>
-    link === "usb"
-      ? port.vendorId !== undefined
-      : port.vendorId === undefined && !/Bluetooth-Incoming-Port/i.test(port.path),
-  );
+  ports.filter((port) => (link === "usb") === (port.transport === "usb"));
 
 const describeTarget = (target: ReaderTarget) =>
   target._tag === "serial"
@@ -117,7 +111,8 @@ export function AdapterGroup({ reader }: { reader: ReaderState }) {
     ),
     link,
   );
-  const selected = ports.some((p) => p.path === device) ? device : SIMULATED;
+  const selectedPort = ports.find((p) => p.path === device);
+  const selected = selectedPort?.path ?? SIMULATED;
   const target: ReaderTarget =
     link === "wifi"
       ? { _tag: "tcp", host: host.trim(), port: Number(port) }
@@ -185,18 +180,17 @@ export function AdapterGroup({ reader }: { reader: ReaderState }) {
           >
             <SelectTrigger size="xs" className="w-42 min-w-0" aria-label="OBD-II adapter">
               <SelectValue>
-                <span className="truncate">
-                  {selected === SIMULATED ? "Simulated adapter" : portName(selected)}
-                </span>
+                {selectedPort ? (
+                  <PortLabel port={selectedPort} />
+                ) : (
+                  <span className="truncate">Simulated adapter</span>
+                )}
               </SelectValue>
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false}>
               {ports.map((p) => (
                 <SelectItem key={p.path} value={p.path}>
-                  <span className="flex items-center gap-2">
-                    {link === "usb" ? <CableIcon /> : <BluetoothIcon />}
-                    {portName(p.path)}
-                  </span>
+                  <PortLabel port={p} />
                 </SelectItem>
               ))}
               <SelectItem value={SIMULATED}>

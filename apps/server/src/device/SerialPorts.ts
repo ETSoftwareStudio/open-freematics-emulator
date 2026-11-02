@@ -27,15 +27,29 @@ export class SerialPorts extends Context.Service<
 const EMULATOR_BRIDGES = new Set(["10c4:ea60", "1a86:7523"]);
 const IGNORED_PORTS = /Bluetooth-Incoming-Port|debug-console|wlan-debug/i;
 
-const toInfo = (port: Awaited<ReturnType<typeof SerialPort.list>>[number]): SerialPortInfo => {
+type ListedPort = Awaited<ReturnType<typeof SerialPort.list>>[number];
+
+// Windows tags Bluetooth SPP ports BTHENUM and Linux binds them to rfcomm; macOS lists them
+// without USB IDs, and its other ID-less ports are in IGNORED_PORTS.
+const transportOf = (port: ListedPort, platform: NodeJS.Platform): SerialPortInfo["transport"] => {
+  if (/BTHENUM/i.test(port.pnpId ?? "") || /rfcomm/.test(port.path)) return "bluetooth";
+  if (port.vendorId !== undefined) return "usb";
+  return platform === "darwin" ? "bluetooth" : "other";
+};
+
+export const toInfo = (
+  port: ListedPort,
+  platform: NodeJS.Platform = process.platform,
+): SerialPortInfo => {
   const vendorId = port.vendorId?.toLowerCase();
   const productId = port.productId?.toLowerCase();
   return {
     // `cu` devices don't block on carrier detect; `tty` ones do.
-    path: process.platform === "darwin" ? port.path.replace("/dev/tty.", "/dev/cu.") : port.path,
+    path: platform === "darwin" ? port.path.replace("/dev/tty.", "/dev/cu.") : port.path,
     ...(port.manufacturer === undefined ? {} : { manufacturer: port.manufacturer }),
     ...(vendorId === undefined ? {} : { vendorId }),
     ...(productId === undefined ? {} : { productId }),
+    transport: transportOf(port, platform),
     likelyEmulator: EMULATOR_BRIDGES.has(`${vendorId}:${productId}`),
   };
 };
@@ -47,7 +61,7 @@ const list = Effect.tryPromise({
   Effect.map((ports) =>
     ports
       .filter((port) => !IGNORED_PORTS.test(port.path))
-      .map(toInfo)
+      .map((port) => toInfo(port))
       .toSorted((a, b) => Number(b.likelyEmulator) - Number(a.likelyEmulator)),
   ),
   Effect.withSpan("SerialPorts.list"),

@@ -1,18 +1,20 @@
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import type { ConnectTarget, Connection, SerialPortInfo } from "@fme/contracts";
+import type { ConnectTarget, Connection } from "@fme/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
-import { CableIcon, CpuIcon } from "lucide-react";
-import { Badge } from "~/components/ui/badge";
+import { CpuIcon } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import {
   Select,
+  SelectGroup,
+  SelectGroupLabel,
   SelectItem,
   SelectPopup,
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
 import { StatusDot, type StatusTone } from "~/components/shell/StatusDot";
+import { PortIcon, PortLabel, portName, portTitle } from "~/lib/ports";
 import { connectAtom, disconnectAtom, portsAtom } from "~/rpc/atoms";
 import { useCommand, useEmulatorState, useFirmwareUpdateState } from "~/rpc/hooks";
 
@@ -26,9 +28,6 @@ export const targetKey = (target: ConnectTarget) =>
 
 const toTarget = (key: string): ConnectTarget =>
   key === SIMULATED ? { _tag: "simulated" } : { _tag: "serial", path: key };
-
-const portLabel = (port: SerialPortInfo) =>
-  `${port.path.replace("/dev/", "")}${port.manufacturer ? ` · ${port.manufacturer}` : ""}`;
 
 /** The emulator target the toolbar, infobars and status bar all talk about. */
 export function useEmulatorTarget() {
@@ -47,14 +46,16 @@ export function useEmulatorTarget() {
     SIMULATED;
   const simulated = selected === SIMULATED;
   return {
+    /** The selected port while it is plugged in. */
+    port: simulated ? undefined : ports.find((port) => port.path === selected),
     connection,
     serverReachable,
     ports,
     selected,
     simulated,
     choose: setChosen,
-    /** The port name without `/dev/`, or `Simulated device`. */
-    label: simulated ? "Simulated device" : selected.replace("/dev/", ""),
+    /** The port name without `/dev/` or `cu.`, or `Simulated device`. */
+    label: simulated ? "Simulated device" : portName(selected),
     busy: connection?._tag === "connected" || connection?._tag === "connecting",
     /** A firmware update owns the device until it ends. */
     updating: firmwareUpdate?._tag === "running",
@@ -97,6 +98,8 @@ const connectionText = (connection: Connection | undefined, serverReachable: boo
 export function DevicePicker() {
   const target = useEmulatorTarget();
   const refreshPorts = useAtomRefresh(portsAtom);
+  const usbPorts = target.ports.filter((port) => port.transport === "usb");
+  const otherPorts = target.ports.filter((port) => port.transport !== "usb");
   return (
     <Select
       value={target.selected}
@@ -116,27 +119,24 @@ export function DevicePicker() {
               <span className="truncate font-medium">Simulated</span>
             ) : (
               <>
-                <span className="font-medium">MK2</span>
-                <code className="truncate font-mono text-2xs text-muted-foreground">
-                  {target.label}
-                </code>
+                <PortIcon transport={target.port?.transport} />
+                <span className="truncate font-medium">
+                  {target.port ? portTitle(target.port) : target.label}
+                </span>
+                {!target.port || portTitle(target.port) === target.label ? null : (
+                  <code className="truncate font-mono text-2xs text-muted-foreground">
+                    {target.label}
+                  </code>
+                )}
               </>
             )}
           </span>
         </SelectValue>
       </SelectTrigger>
       <SelectPopup align="start" alignItemWithTrigger={false}>
-        {target.ports.map((port) => (
+        {usbPorts.map((port) => (
           <SelectItem key={port.path} value={port.path}>
-            <span className="flex items-center gap-2">
-              <CableIcon />
-              {portLabel(port)}
-              {port.likelyEmulator ? (
-                <Badge variant="info" size="sm">
-                  MK2
-                </Badge>
-              ) : null}
-            </span>
+            <PortLabel port={port} />
           </SelectItem>
         ))}
         <SelectItem value={SIMULATED}>
@@ -145,6 +145,16 @@ export function DevicePicker() {
             Simulated device
           </span>
         </SelectItem>
+        {otherPorts.length > 0 ? (
+          <SelectGroup>
+            <SelectGroupLabel>Other ports</SelectGroupLabel>
+            {otherPorts.map((port) => (
+              <SelectItem key={port.path} value={port.path}>
+                <PortLabel port={port} />
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ) : null}
       </SelectPopup>
     </Select>
   );

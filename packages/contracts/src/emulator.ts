@@ -56,6 +56,7 @@ export const SerialPortInfo = Schema.Struct({
   manufacturer: Schema.optional(Schema.String),
   vendorId: Schema.optional(Schema.String),
   productId: Schema.optional(Schema.String),
+  transport: Schema.Literals(["usb", "bluetooth", "other"]),
   /** USB VID/PID matches a bridge the MK2 ships with (CP2102 or CH340). */
   likelyEmulator: Schema.Boolean,
 });
