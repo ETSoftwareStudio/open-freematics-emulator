@@ -1,12 +1,10 @@
 import { Progress } from "@base-ui/react/progress";
 import {
   MAX_FIRMWARE_IMAGE_LENGTH,
-  MAX_VENDOR_BINARY_LENGTH,
   type FirmwareImageSource,
   type FirmwareImageSummary,
   type FirmwareUpdateStage,
   type FirmwareUpdateState,
-  type ImportVendorFilesInput,
   type LibraryImage,
 } from "@fme/contracts";
 import { LATEST_OFFICIAL_FIRMWARE } from "@fme/shared/firmware";
@@ -33,6 +31,7 @@ import {
   updateFirmwareAtom,
 } from "~/rpc/atoms";
 import { useCall, useFirmwareLibrary, useFirmwareUpdateState, useWireKeyStatus } from "~/rpc/hooks";
+import { importVendorFolder } from "./vendorFolder";
 
 const STAGES: Record<FirmwareUpdateStage, string> = {
   entering: "Restarting into the bootloader…",
@@ -136,22 +135,6 @@ function FolderButton({
     </>
   );
 }
-
-/** FirmwareUpdater.exe (for the key) and the firmware .hex files; the rest of the folder is skipped. */
-const collectVendorFiles = async (
-  files: ReadonlyArray<File>,
-): Promise<ImportVendorFilesInput["files"]> => {
-  const wanted = files
-    .filter((file) => /^firmwareupdater\.exe$|\.hex$/i.test(file.name))
-    .filter((file) => file.size <= MAX_VENDOR_BINARY_LENGTH)
-    .slice(0, 32);
-  return Promise.all(
-    wanted.map(async (file) => ({
-      name: file.name,
-      bytes: new Uint8Array(await file.arrayBuffer()),
-    })),
-  );
-};
 
 const libraryLabel = (image: LibraryImage) =>
   [image.version !== null ? `V${image.version}` : image.name, image.released]
@@ -265,29 +248,9 @@ function UpdateFlow({
 
   const importFolder = async (files: ReadonlyArray<File>) => {
     setVendor({ busy: true, note: null, error: false });
-    const collected = await collectVendorFiles(files);
-    if (collected.length === 0) {
-      setVendor({
-        busy: false,
-        note: "That folder has no FirmwareUpdater.exe or firmware .hex files.",
-        error: true,
-      });
-      return;
-    }
-    const result = await importFiles({ files: collected });
-    if (!result.ok) {
-      setVendor({ busy: false, note: result.message, error: true });
-      return;
-    }
-    setChoice(null);
-    setVendor({
-      busy: false,
-      note:
-        result.value.imagesAdded === 0
-          ? "No firmware images were in that folder."
-          : `Found ${result.value.imagesAdded} firmware ${result.value.imagesAdded === 1 ? "image" : "images"}.`,
-      error: false,
-    });
+    const outcome = await importVendorFolder(files, importFiles);
+    if (outcome.imported) setChoice(null);
+    setVendor({ busy: false, note: outcome.note, error: outcome.error });
   };
 
   const replaceKey = async () => {

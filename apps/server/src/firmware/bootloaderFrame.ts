@@ -4,6 +4,7 @@
  * Commands go out encrypted with a 16-byte wire key the caller supplies; replies come back clear.
  */
 import * as NodeCrypto from "node:crypto";
+import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
@@ -123,21 +124,28 @@ export const WIRE_KEY_LENGTH = 16;
 export const VENDOR_WIRE_KEY_SHA256 =
   "2d892f5f5ff0f613b75d1feea642910b064e7f35a5e616264dc039c90a082243";
 
+/** Windows hashed between yields, so a multi-megabyte scan never holds the event loop for long. */
+export const WIRE_KEY_SCAN_SLICE = 1 << 15;
+
 /**
  * Scans a buffer for the 16-byte window whose SHA-256 matches `sha256`, returning a copy of it or
  * `null`. Finding it by hash (not a fixed offset) is self-verifying and survives vendor-version
- * layout shifts; the match is proof the right bytes were found.
+ * layout shifts; the match is proof the right bytes were found. Interruptible between slices.
  */
-export const findWireKey = (
+export const findWireKey = Effect.fn("findWireKey")(function* (
   data: Uint8Array,
   sha256: string = VENDOR_WIRE_KEY_SHA256,
-): Uint8Array | null => {
-  for (let i = 0; i + WIRE_KEY_LENGTH <= data.length; i++) {
-    const window = data.subarray(i, i + WIRE_KEY_LENGTH);
-    if (wireKeyFingerprint(window) === sha256) return Uint8Array.from(window);
+) {
+  const windows = data.length - WIRE_KEY_LENGTH + 1;
+  for (let start = 0; start < windows; start += WIRE_KEY_SCAN_SLICE) {
+    if (start > 0) yield* Effect.yieldNow;
+    for (let i = start; i < Math.min(start + WIRE_KEY_SCAN_SLICE, windows); i++) {
+      const window = data.subarray(i, i + WIRE_KEY_LENGTH);
+      if (wireKeyFingerprint(window) === sha256) return Uint8Array.from(window);
+    }
   }
   return null;
-};
+});
 
 /** Checks delimiters, escapes and checksum; the payload is whatever follows the command byte. */
 export const decodeReplyFrame = (

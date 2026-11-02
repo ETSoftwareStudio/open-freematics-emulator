@@ -1,5 +1,8 @@
+import { describe, expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Result from "effect/Result";
-import { describe, expect, it } from "vite-plus/test";
 import {
   BootloaderCommand,
   decodeCommandFrame,
@@ -7,6 +10,7 @@ import {
   encodeCommandFrame,
   findWireKey,
   paddingLength,
+  WIRE_KEY_SCAN_SLICE,
   wireKeyFingerprint,
 } from "./bootloaderFrame.ts";
 
@@ -94,23 +98,56 @@ describe("findWireKey", () => {
     Uint8Array.from({ length: n }, (_, i) => (i * 131 + seed) & 0xff);
   const buffer = Uint8Array.from([...noise(500, 3), ...planted, ...noise(700, 9)]);
 
-  it("recovers the window whose hash matches, byte for byte", () => {
-    const found = findWireKey(buffer, fingerprint);
-    expect(found).not.toBeNull();
-    expect(hex(found!)).toBe(hex(planted));
-  });
+  it.effect("recovers the window whose hash matches, byte for byte", () =>
+    Effect.gen(function* () {
+      const found = yield* findWireKey(buffer, fingerprint);
+      expect(found).not.toBeNull();
+      expect(hex(found!)).toBe(hex(planted));
+    }),
+  );
 
-  it("returns a fresh copy, not a view into the buffer", () => {
-    const found = findWireKey(buffer, fingerprint)!;
-    buffer[500] = buffer[500]! ^ 0xff;
-    expect(hex(found)).toBe(hex(planted));
-  });
+  it.effect("returns a fresh copy, not a view into the buffer", () =>
+    Effect.gen(function* () {
+      const found = (yield* findWireKey(buffer, fingerprint))!;
+      buffer[500] = buffer[500]! ^ 0xff;
+      expect(hex(found)).toBe(hex(planted));
+    }),
+  );
 
-  it("returns null when no window matches", () => {
-    expect(findWireKey(noise(1000, 1), fingerprint)).toBeNull();
-  });
+  it.effect("returns null when no window matches", () =>
+    Effect.gen(function* () {
+      expect(yield* findWireKey(noise(1000, 1), fingerprint)).toBeNull();
+    }),
+  );
 
-  it("returns null for a buffer shorter than the key", () => {
-    expect(findWireKey(planted.subarray(0, 15), fingerprint)).toBeNull();
-  });
+  it.effect("returns null for a buffer shorter than the key", () =>
+    Effect.gen(function* () {
+      expect(yield* findWireKey(planted.subarray(0, 15), fingerprint)).toBeNull();
+    }),
+  );
+
+  const large = noise(2 * WIRE_KEY_SCAN_SLICE + 16, 5);
+
+  it.effect("lets other work run between slices of a long scan", () =>
+    Effect.gen(function* () {
+      const order: Array<string> = [];
+      const scan = yield* findWireKey(large, fingerprint).pipe(
+        Effect.tap(() => Effect.sync(() => order.push("scan done"))),
+        Effect.forkChild({ startImmediately: true }),
+      );
+      order.push("other work");
+      expect(yield* Fiber.join(scan)).toBeNull();
+      expect(order).toEqual(["other work", "scan done"]);
+    }),
+  );
+
+  it.effect("stops when interrupted mid-scan", () =>
+    Effect.gen(function* () {
+      const scan = yield* findWireKey(large, fingerprint).pipe(
+        Effect.forkChild({ startImmediately: true }),
+      );
+      const exit = yield* Fiber.interrupt(scan).pipe(Effect.andThen(Fiber.await(scan)));
+      expect(Exit.hasInterrupts(exit)).toBe(true);
+    }),
+  );
 });

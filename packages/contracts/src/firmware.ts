@@ -207,12 +207,14 @@ export class VendorDownloadError extends Schema.TaggedError<VendorDownloadError>
 
 export class VendorImportError extends Schema.TaggedError<VendorImportError>()(
   "VendorImportError",
-  { reason: Schema.Literals(["noKey", "persist"]) },
+  { reason: Schema.Literals(["noKey", "duplicateName", "persist"]) },
 ) {
   override get message(): string {
     switch (this.reason) {
       case "noKey":
         return "No MK2 wire key was found. Choose the Freematics folder that has FirmwareUpdater.exe.";
+      case "duplicateName":
+        return "Two different firmware images share a name. Choose a folder with one copy of each.";
       case "persist":
         return "The Freematics files couldn't be saved.";
     }

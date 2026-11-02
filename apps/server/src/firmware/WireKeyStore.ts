@@ -1,11 +1,14 @@
 import { type ImportWireKeyInput, WireKeyError, type WireKeyStatus } from "@fme/contracts";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import { writeFileAtomic } from "./atomicFile.ts";
 import { findWireKey, WIRE_KEY_LENGTH, wireKeyFingerprint } from "./bootloaderFrame.ts";
 
 const FILE_NAME = "wire-key.bin";
@@ -32,8 +35,15 @@ export class WireKeyStore extends Context.Service<
   }
 >()("@fme/server/firmware/WireKeyStore") {}
 
-const make = Effect.fn("WireKeyStore.make")(function* (options: { readonly dataDir: string }) {
+interface Options {
+  readonly dataDir: string;
+  /** Tests plant a stand-in key; the vendor key's hash is the default. */
+  readonly keySha256?: string;
+}
+
+const make = Effect.fn("WireKeyStore.make")(function* (options: Options) {
   const fileSystem = yield* FileSystem.FileSystem;
+  const crypto = yield* Crypto.Crypto;
   const path = yield* Path.Path;
   const file = path.join(options.dataDir, FILE_NAME);
 
@@ -44,27 +54,41 @@ const make = Effect.fn("WireKeyStore.make")(function* (options: { readonly dataD
   );
 
   const key = yield* SubscriptionRef.make<Uint8Array | null>(yield* load);
+  // One lock over both mutations, and each commit (disk, then memory) is uninterruptible, so the
+  // file and the in-memory key always agree.
+  const lock = yield* Semaphore.make(1);
+  const commit = <E>(persist: Effect.Effect<void, E>, next: Uint8Array | null) =>
+    persist.pipe(
+      Effect.mapError(() => new WireKeyError({ reason: "persist" })),
+      Effect.andThen(SubscriptionRef.set(key, next)),
+      Effect.uninterruptible,
+      lock.withPermit,
+    );
 
   const importBinary = Effect.fn("WireKeyStore.importBinary")(function* (
     input: ImportWireKeyInput,
   ) {
-    const found = findWireKey(input.binary);
+    const found = yield* findWireKey(input.binary, options.keySha256);
     if (found === null) return yield* new WireKeyError({ reason: "notFound" });
-    yield* fileSystem.makeDirectory(options.dataDir, { recursive: true }).pipe(
-      Effect.andThen(fileSystem.writeFile(file, found, { mode: 0o600 })),
-      Effect.mapError(() => new WireKeyError({ reason: "persist" })),
+    yield* commit(
+      fileSystem
+        .makeDirectory(options.dataDir, { recursive: true })
+        .pipe(
+          Effect.andThen(writeFileAtomic({ fileSystem, crypto }, file, found, { mode: 0o600 })),
+        ),
+      found,
     );
-    yield* SubscriptionRef.set(key, found);
     return statusOf(found);
   });
 
-  const forget = fileSystem.remove(file).pipe(
-    Effect.catchTags({
-      PlatformError: (error) =>
-        error.reason._tag === "NotFound" ? Effect.void : Effect.fail(error),
-    }),
-    Effect.mapError(() => new WireKeyError({ reason: "persist" })),
-    Effect.andThen(SubscriptionRef.set(key, null)),
+  const forget = commit(
+    fileSystem.remove(file).pipe(
+      Effect.catchTags({
+        PlatformError: (error) =>
+          error.reason._tag === "NotFound" ? Effect.void : Effect.fail(error),
+      }),
+    ),
+    null,
   );
 
   return WireKeyStore.of({
@@ -75,5 +99,4 @@ const make = Effect.fn("WireKeyStore.make")(function* (options: { readonly dataD
   });
 });
 
-export const layer = (options: { readonly dataDir: string }) =>
-  Layer.effect(WireKeyStore, make(options));
+export const layer = (options: Options) => Layer.effect(WireKeyStore, make(options));

@@ -6,6 +6,7 @@ import {
   type LibraryImage,
 } from "@fme/contracts";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -15,6 +16,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import { writeFileAtomic } from "./atomicFile.ts";
 import { bannerVersion, readFirmwareImage, summarizeImage } from "./firmwareImage.ts";
 import * as WireKeyStore from "./WireKeyStore.ts";
 
@@ -27,6 +29,7 @@ interface Entry {
 
 const isLibraryName = Schema.is(LibraryImageName);
 const isImageFile = (name: string) => /\.hex$/i.test(name);
+const nameKey = (name: string) => name.toLowerCase();
 
 const releasedFrom = (name: string) => {
   const match = /(20\d{2})(\d{2})(\d{2})/.exec(name);
@@ -71,6 +74,7 @@ export class FirmwareLibrary extends Context.Service<
 
 const make = Effect.fn("FirmwareLibrary.make")(function* (options: { readonly dataDir: string }) {
   const fileSystem = yield* FileSystem.FileSystem;
+  const crypto = yield* Crypto.Crypto;
   const path = yield* Path.Path;
   const wireKeyStore = yield* WireKeyStore.WireKeyStore;
   const directory = path.join(options.dataDir, DIRECTORY);
@@ -124,27 +128,48 @@ const make = Effect.fn("FirmwareLibrary.make")(function* (options: { readonly da
     if (!keyFound && (yield* wireKeyStore.read) === null) {
       return yield* new VendorImportError({ reason: "noKey" });
     }
-    const added = input.files.flatMap((file) => {
+    // Keyed case-insensitively: on macOS and Windows "A.hex" and "a.hex" are one file on disk.
+    const existing = new Map(
+      (yield* SubscriptionRef.get(entries)).map((entry) => [nameKey(entry.info.name), entry]),
+    );
+    const added = new Map<string, Entry>();
+    for (const file of input.files) {
       const name = path.basename(file.name);
-      if (!isImageFile(name) || !isLibraryName(name)) return [];
-      const entry = entryOf(name, new TextDecoder().decode(file.bytes));
-      return entry === null ? [] : [entry];
-    });
-    yield* fileSystem.makeDirectory(directory, { recursive: true }).pipe(
-      Effect.andThen(
-        Effect.forEach(
-          added,
-          (entry) => fileSystem.writeFileString(path.join(directory, entry.info.name), entry.text),
-          { discard: true },
+      if (!isImageFile(name) || !isLibraryName(name)) continue;
+      const entry = entryOf(
+        existing.get(nameKey(name))?.info.name ?? name,
+        new TextDecoder().decode(file.bytes),
+      );
+      if (entry === null) continue;
+      const twin = added.get(nameKey(name));
+      if (twin !== undefined && twin.text !== entry.text) {
+        return yield* new VendorImportError({ reason: "duplicateName" });
+      }
+      added.set(nameKey(name), entry);
+    }
+    yield* fileSystem
+      .makeDirectory(directory, { recursive: true })
+      .pipe(Effect.mapError(() => new VendorImportError({ reason: "persist" })));
+    // Each image commits on its own, disk then list: a failure keeps the images already committed
+    // and leaves the failed image's previous file whole.
+    for (const entry of added.values()) {
+      yield* writeFileAtomic(
+        { fileSystem, crypto },
+        path.join(directory, entry.info.name),
+        new TextEncoder().encode(entry.text),
+      ).pipe(
+        Effect.andThen(
+          SubscriptionRef.update(entries, (current) =>
+            [...current.filter((item) => item.info.name !== entry.info.name), entry].sort(
+              newestFirst,
+            ),
+          ),
         ),
-      ),
-      Effect.mapError(() => new VendorImportError({ reason: "persist" })),
-    );
-    const names = new Set(added.map((entry) => entry.info.name));
-    yield* SubscriptionRef.update(entries, (current) =>
-      [...current.filter((entry) => !names.has(entry.info.name)), ...added].sort(newestFirst),
-    );
-    return { keyFound, imagesAdded: added.length };
+        Effect.uninterruptible,
+        Effect.mapError(() => new VendorImportError({ reason: "persist" })),
+      );
+    }
+    return { keyFound, imagesAdded: added.size };
   }, lock.withPermit);
 
   return FirmwareLibrary.of({
