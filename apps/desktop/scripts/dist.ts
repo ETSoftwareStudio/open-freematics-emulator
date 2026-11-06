@@ -107,6 +107,8 @@ await build({
         { target: "zip", arch: BOTH },
       ],
     },
+    // One installer per architecture, not an extra one that bundles both.
+    nsis: { buildUniversalInstaller: false },
     linux: {
       target: [
         { target: "AppImage", arch: BOTH },

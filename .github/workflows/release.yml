@@ -119,8 +119,6 @@ jobs:
           name: npm-package
       - name: Publish
         env:
-          # Only needed until trusted publishing is set up on npmjs.com; see RELEASING.md.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ needs.verify.outputs.version }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
         run: |

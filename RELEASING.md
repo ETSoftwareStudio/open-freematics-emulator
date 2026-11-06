@@ -36,18 +36,13 @@ start over, delete the release and the tag on GitHub, then tag again.
 
 ### npm
 
-npm's trusted publishing lets the Release workflow publish without a stored token, but it can only
-be turned on for a package that already exists. So the first version goes out with a token:
+The Release workflow publishes through npm's trusted publishing: npmjs.com trusts
+`ETSoftwareStudio/open-freematics-emulator`'s `release.yml` (with **Allow npm publish** on), so no
+npm token is stored anywhere. Configure it under the package → Settings → Trusted publishing.
 
-1. Sign in to [npmjs.com](https://www.npmjs.com) with two-factor authentication on.
-2. Create a granular access token with read and write access to packages, and add it to the repo
-   as the Actions secret `NPM_TOKEN` (Settings → Secrets and variables → Actions).
-3. Release the first version as above.
-4. On npmjs.com, open the `open-freematics-emulator` package → Settings → Trusted publishing, and
-   add GitHub Actions with organization `ETSoftwareStudio`, repository
-   `open-freematics-emulator` and workflow `release.yml`.
-5. Delete the `NPM_TOKEN` secret and the token. Optionally set the package to require two-factor
-   authentication and disallow tokens.
+Trusted publishing only works for a package that already exists. If the package is ever recreated,
+publish its first version with a short-lived granular token stored as the `NPM_TOKEN` secret and
+passed to the publish step as `NODE_AUTH_TOKEN`, then switch back and delete the token.
 
 Check a staged package locally with `vp run npm:stage` and `vp run npm:smoke`.
 
