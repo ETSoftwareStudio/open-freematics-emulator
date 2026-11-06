@@ -22,9 +22,4 @@ cask "open-freematics-emulator" do
     "~/Library/Preferences/studio.etsoftware.open-freematics-emulator.plist",
     "~/Library/Saved Application State/studio.etsoftware.open-freematics-emulator.savedState",
   ]
-
-  caveats <<~EOS
-    The app is not signed with an Apple Developer ID yet. The first time you open it, macOS
-    blocks it: open System Settings → Privacy & Security and click "Open Anyway".
-  EOS
 end
