@@ -18,18 +18,18 @@ Stop what you started by the task or PID you recorded. Never kill by name or pat
 
 ## Pick a device
 
-- **Simulated device** (connection bar) needs no hardware and replays the firmware behavior
-  recorded from a V1.2 unit. Use it for UI work.
+- **Simulated device** (connection bar) needs no hardware and behaves like a V1.3 unit, AT
+  commands and bootloader both. Use it for UI work.
 - **Real MK2**: `ls /dev/cu.*` should show `cu.usbserial-*` (CP2102) or `cu.wchusbserial*`
   (CH340). If nothing appears, the cable is charge-only or the 12 V supply is off; ask the user.
   Only one process can hold the port, so stop other servers before connecting from another one.
 
 ## Verify in the browser
 
-Use the Browser panel tools. Open the web port, connect, change the control under test, then read
-the value back from the device with the console's `ATGET` quick commands or by typing one. The
-console shows every line sent and received, which is the ground truth: a UI change is verified
-only when the matching `ATSET` got `OK` and `ATGET` returns the expected bytes.
+Open the web port in a browser (or your agent's browser tool), connect, change the control under
+test, then read the value back from the device with the console's `ATGET` quick commands or by
+typing one. The console shows every line sent and received, which is the ground truth: a UI
+change is verified only when the matching `ATSET` got `OK` and `ATGET` returns the expected bytes.
 
 Base UI sliders and the cluster gauges don't respond to automated drags. Focus the slider's range
 input or the gauge (`role=slider`) and press arrow, PageUp or End keys instead; that runs the same
