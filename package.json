@@ -12,6 +12,8 @@
     "desktop": "vp run build && vp run --filter @fme/desktop build && vp run --filter @fme/desktop start",
     "desktop:dev": "node scripts/dev-runner.ts --desktop",
     "desktop:dist": "vp run build && vp run --filter @fme/desktop build && vp run --filter @fme/desktop dist --",
+    "npm:stage": "vp run build && node apps/server/scripts/stage-npm.ts",
+    "npm:smoke": "node apps/server/scripts/smoke-npm.ts",
     "typecheck": "vp run -r typecheck",
     "test": "vp run -r test",
     "lint": "vp lint",

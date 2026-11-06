@@ -75,6 +75,8 @@ await build({
   config: {
     appId: "studio.etsoftware.open-freematics-emulator",
     productName: manifest.productName,
+    // No spaces: release assets, the Homebrew cask and download links use these names.
+    artifactName: "${name}-${version}-${os}-${arch}.${ext}",
     electronVersion: manifest.devDependencies.electron,
     // The server runs as its own Node process and loads serialport's native prebuild from disk.
     asar: false,

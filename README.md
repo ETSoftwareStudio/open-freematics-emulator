@@ -14,6 +14,16 @@ shared with a React client.
 > It is not affiliated with, endorsed by or supported by Freematics. Freematics and its product
 > names are trademarks of their owner, used here only to say which device the app works with.
 
+## Install
+
+- **macOS:** `brew install --cask etsoftwarestudio/tap/open-freematics-emulator`
+- **macOS, Windows, Linux:** installers on the
+  [Releases page](https://github.com/ETSoftwareStudio/open-freematics-emulator/releases)
+- **Any OS with Node.js 24:** `npx open-freematics-emulator` starts the app and opens it in your
+  browser
+
+The apps aren't code-signed yet, so macOS and Windows warn the first time you open them.
+
 ## Quick start
 
 ```sh
@@ -154,6 +164,10 @@ docs/internals      Conventions for contributors and agents (start from AGENTS.m
 | `vp run test`        | Runs every package's tests                          |
 | `vp run typecheck`   | Type-checks every package                           |
 | `vp run check`       | Format check, lint, typecheck and tests             |
+| `vp run npm:stage`   | Stages the npx package in `apps/server/.stage/npm`  |
+| `vp run npm:smoke`   | Installs and runs the staged package as npx would   |
+
+Releases: see [RELEASING.md](RELEASING.md).
 
 ## License
 

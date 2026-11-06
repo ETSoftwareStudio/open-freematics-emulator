@@ -2,8 +2,8 @@ name: Desktop
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
+  # The Release workflow calls this one to build the installers it publishes.
+  workflow_call:
   pull_request:
     paths:
       - "apps/**"
@@ -33,12 +33,12 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm desktop:dist
+      - run: pnpm exec vp run desktop:dist
       - name: Smoke-test the packaged app
-        run: pnpm --filter @fme/desktop smoke
+        run: pnpm exec vp run @fme/desktop#smoke
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: open-freematics-emulator-${{ runner.os }}
+          name: desktop-${{ runner.os }}
           path: |
             apps/desktop/release/*.dmg
             apps/desktop/release/*.zip
