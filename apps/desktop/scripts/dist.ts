@@ -73,7 +73,7 @@ await build({
   ...target("win"),
   ...target("linux"),
   config: {
-    appId: "io.github.eltonvs.open-freematics-emulator",
+    appId: "studio.etsoftware.open-freematics-emulator",
     productName: manifest.productName,
     electronVersion: manifest.devDependencies.electron,
     // The server runs as its own Node process and loads serialport's native prebuild from disk.
