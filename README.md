@@ -22,7 +22,9 @@ shared with a React client.
 - **Any OS with Node.js 24:** `npx open-freematics-emulator` starts the app and opens it in your
   browser
 
-The apps aren't code-signed yet, so macOS and Windows warn the first time you open them.
+The apps aren't code-signed yet, so macOS and Windows warn the first time you open them. On
+macOS, open System Settings → Privacy & Security and click **Open Anyway**; on Windows, click
+**More info → Run anyway**.
 
 ## Quick start
 
@@ -51,11 +53,11 @@ vp run desktop:dist --win     # or --mac, --linux; --dir for unpacked apps only
 vp run @fme/desktop#smoke     # check the packaged app for this OS
 ```
 
-| OS      | Output                                                          |
-| ------- | --------------------------------------------------------------- |
-| macOS   | `.dmg` and `.zip` (unsigned: right-click → Open the first time) |
-| Windows | NSIS installer `.exe` and a portable `.zip`                     |
-| Linux   | `.AppImage` and `.deb`                                          |
+| OS      | Output                                                     |
+| ------- | ---------------------------------------------------------- |
+| macOS   | `.dmg` and `.zip` (not notarized: see [Install](#install)) |
+| Windows | NSIS installer `.exe` and a portable `.zip`                |
+| Linux   | `.AppImage` and `.deb`                                     |
 
 Each OS builds its own installers best; the `Desktop` GitHub workflow does that on macOS, Windows
 and Linux runners, smoke-tests each package and uploads them. From an Apple Silicon Mac, Linux

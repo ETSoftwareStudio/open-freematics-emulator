@@ -45,6 +45,10 @@ jobs:
   desktop:
     needs: verify
     uses: ./.github/workflows/desktop.yml
+    with:
+      sign: true
+    # Only the macOS signing secrets are read; without them the app is ad-hoc signed.
+    secrets: inherit
 
   npm-package:
     name: npm package

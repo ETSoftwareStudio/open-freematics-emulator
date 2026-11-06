@@ -92,8 +92,10 @@ await build({
         { target: "zip", arch: BOTH },
       ],
       category: "public.app-category.developer-tools",
-      // Unsigned until there is a Developer ID; see the README.
-      identity: null,
+      // With a Developer ID certificate (CSC_LINK, set by the release build) electron-builder signs
+      // with the hardened runtime and notarizes. Otherwise sign ad-hoc: unsigned, the signature is
+      // invalid and macOS calls a downloaded copy "damaged" instead of offering "Open Anyway".
+      ...(process.env.CSC_LINK ? {} : { identity: "-", hardenedRuntime: false }),
       extendInfo: {
         NSBluetoothAlwaysUsageDescription: "Connects to Bluetooth OBD-II adapters.",
       },

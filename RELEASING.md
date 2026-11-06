@@ -68,13 +68,44 @@ brew install --cask etsoftwarestudio/tap/open-freematics-emulator
 
 The cask template is [packaging/homebrew](packaging/homebrew/open-freematics-emulator.rb).
 
+### macOS signing and notarization
+
+Release builds sign the Mac app with a Developer ID and notarize it when these secrets exist, so it
+opens without a Gatekeeper warning. Without them the app is ad-hoc signed and users must click
+**Open Anyway** in System Settings → Privacy & Security.
+
+1. **Developer ID Application certificate.** Creating one needs the Account Holder role on the
+   team whose name users should see (ET Software Studio Inc.). In Xcode → Settings → Accounts →
+   Manage Certificates, click **+ → Developer ID Application**. Then in Keychain Access, export
+   the certificate together with its private key as a `.p12` with a password, and store both:
+
+   ```sh
+   base64 -i DeveloperID.p12 | gh secret set MAC_CERTIFICATE
+   gh secret set MAC_CERTIFICATE_PASSWORD
+   ```
+
+2. **App Store Connect API key** for notarization. In App Store Connect → Users and Access →
+   Integrations → App Store Connect API, generate a team key with the **Developer** role. Download
+   the `.p8` (only possible once) and note the Key ID and the Issuer ID above the list:
+
+   ```sh
+   gh secret set APPLE_API_KEY_P8 < AuthKey_XXXXXXXXXX.p8
+   gh secret set APPLE_API_KEY_ID
+   gh secret set APPLE_API_ISSUER
+   ```
+
+3. **Try it without releasing:** `gh workflow run desktop.yml -f sign=true`, download the
+   `desktop-macOS` artifact, mount the `.dmg` and run
+   `spctl -a -vv "/Volumes/…/Open Freematics Emulator.app"`. It should say
+   `accepted` and `source=Notarized Developer ID`.
+
+Delete the `.p12` and `.p8` from your disk once they are stored as secrets.
+
 ## Later
 
-- **Code signing.** The apps are unsigned, so macOS Gatekeeper and Windows SmartScreen warn on
-  first launch. An Apple Developer ID (99 USD a year) with notarization removes the macOS warning
-  and is required for the official `homebrew/cask`; electron-builder signs when `CSC_LINK`,
-  `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` are set and
-  `identity: null` is removed from `apps/desktop/scripts/dist.ts`.
+- **Windows signing.** The installer is unsigned, so SmartScreen warns on first launch. Azure
+  Trusted Signing is the cheapest option electron-builder supports.
+- **Official `homebrew/cask`.** Needs the notarized app; then the tap is optional.
 - **winget.** Submit the first version by hand with
   `wingetcreate new <url of the .exe from the release>`, which opens a pull request on
   `microsoft/winget-pkgs`. Later versions can be automated with `wingetcreate update`.
