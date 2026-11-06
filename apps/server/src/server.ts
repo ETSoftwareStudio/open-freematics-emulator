@@ -31,6 +31,7 @@ export interface ServerOptions {
 export const makeLayer = (options: ServerOptions) =>
   HttpRouter.serve(
     Layer.mergeAll(
+      Http.localOnlyLayer,
       Ws.layer,
       Http.healthLayer,
       options.webRoot === null ? Layer.empty : Http.staticLayer(options.webRoot),
