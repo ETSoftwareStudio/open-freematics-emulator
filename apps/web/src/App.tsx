@@ -57,7 +57,7 @@ export function App() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-window text-foreground">
-      <h1 className="sr-only">Freematics Emulator</h1>
+      <h1 className="sr-only">Open Freematics Emulator</h1>
       <AppToolbar
         screen={screen}
         onScreenChange={changeScreen}

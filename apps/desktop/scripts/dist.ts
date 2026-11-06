@@ -31,13 +31,13 @@ NodeFS.writeFileSync(
   NodePath.join(stage, "package.json"),
   JSON.stringify(
     {
-      name: "freematics-emulator",
+      name: "open-freematics-emulator",
       productName: manifest.productName,
       version: manifest.version,
       description: manifest.description,
       homepage: manifest.homepage,
       author: "Elton Viana",
-      desktopName: "freematics-emulator.desktop",
+      desktopName: "open-freematics-emulator.desktop",
       type: "module",
       main: "dist/main.mjs",
       dependencies: manifest.dependencies,
@@ -73,7 +73,7 @@ await build({
   ...target("win"),
   ...target("linux"),
   config: {
-    appId: "io.github.eltonvs.freematics-emulator",
+    appId: "io.github.eltonvs.open-freematics-emulator",
     productName: manifest.productName,
     electronVersion: manifest.devDependencies.electron,
     // The server runs as its own Node process and loads serialport's native prebuild from disk.

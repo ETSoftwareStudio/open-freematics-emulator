@@ -1,6 +1,6 @@
 ---
 name: test-emulator-app
-description: Run the Freematics emulator app and verify a change end to end, against the simulated device or a real MK2 over USB. Use for browser verification of the web UI and for hardware checks.
+description: Run the Open Freematics Emulator app and verify a change end to end, against the simulated device or a real MK2 over USB. Use for browser verification of the web UI and for hardware checks.
 ---
 
 # Test the emulator app

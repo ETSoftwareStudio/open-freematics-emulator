@@ -1,6 +1,6 @@
 <img src="assets/icon.svg" width="64" height="64" alt="">
 
-# freematics-emulator
+# Open Freematics Emulator
 
 A modern control app for the [Freematics OBD-II Emulator MK2](https://freematics.com/products/freematics-obd-emulator-mk2/).
 It replaces the Windows-only GUI with a local server that owns the USB serial link and a web UI
@@ -10,9 +10,9 @@ Under the hood: a Node WebSocket server built from Effect services, and typed RP
 shared with a React client.
 
 > [!NOTE]
-> This is an independent, unofficial project. It is not affiliated with, endorsed by or
-> supported by Freematics. Freematics and product names are trademarks of their owner, used here
-> only to say which device the app works with.
+> This is an independent, unofficial, open-source project; "Open" in the name means open source.
+> It is not affiliated with, endorsed by or supported by Freematics. Freematics and its product
+> names are trademarks of their owner, used here only to say which device the app works with.
 
 ## Quick start
 

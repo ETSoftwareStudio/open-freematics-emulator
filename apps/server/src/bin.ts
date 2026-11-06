@@ -23,16 +23,16 @@ const defaultDataDir = () => {
   const home = NodeOS.homedir();
   switch (process.platform) {
     case "darwin":
-      return NodePath.join(home, "Library", "Application Support", "Freematics Emulator");
+      return NodePath.join(home, "Library", "Application Support", "Open Freematics Emulator");
     case "win32":
       return NodePath.join(
         process.env.APPDATA || NodePath.join(home, "AppData", "Roaming"),
-        "Freematics Emulator",
+        "Open Freematics Emulator",
       );
     default:
       return NodePath.join(
         process.env.XDG_CONFIG_HOME || NodePath.join(home, ".config"),
-        "freematics-emulator",
+        "open-freematics-emulator",
       );
   }
 };

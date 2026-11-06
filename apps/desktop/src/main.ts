@@ -90,7 +90,7 @@ const startServer = (port: number) =>
       const reason = `The emulator server stopped (exit code ${code}).\n\n${output.join("").slice(-2000)}`;
       if (!started) reject(new Error(reason));
       else if (!quitting) {
-        dialog.showErrorBox("Freematics Emulator", reason);
+        dialog.showErrorBox("Open Freematics Emulator", reason);
         app.quit();
       }
     });
@@ -164,7 +164,7 @@ const buildMenu = () => {
       role: "help",
       submenu: IS_MAC
         ? []
-        : [{ label: "About Freematics Emulator", click: () => app.showAboutPanel() }],
+        : [{ label: "About Open Freematics Emulator", click: () => app.showAboutPanel() }],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -176,7 +176,7 @@ const createWindow = (url: string) => {
     height: 900,
     minWidth: 960,
     minHeight: 600,
-    title: "Freematics Emulator",
+    title: "Open Freematics Emulator",
     backgroundColor: chromeColors().window,
     icon: ICON,
     show: false,
@@ -226,7 +226,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.setAboutPanelOptions({
-    applicationName: "Freematics Emulator",
+    applicationName: "Open Freematics Emulator",
     credits:
       "An independent, unofficial app for the Freematics OBD-II Emulator MK2. " +
       "Not affiliated with, endorsed by or supported by Freematics.",
@@ -249,7 +249,7 @@ if (!app.requestSingleInstanceLock()) {
       quitting = true;
       server?.kill();
       dialog.showErrorBox(
-        "Freematics Emulator",
+        "Open Freematics Emulator",
         String(error instanceof Error ? error.message : error),
       );
       app.quit();

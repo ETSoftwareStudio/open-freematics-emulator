@@ -1,4 +1,4 @@
-# freematics-emulator
+# Open Freematics Emulator
 
 A local control app for the Freematics OBD-II Emulator MK2. A Node WebSocket server owns the USB
 serial link and speaks the emulator's AT command set; a React web client drives it over typed RPC.

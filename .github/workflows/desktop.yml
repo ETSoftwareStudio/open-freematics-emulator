@@ -38,7 +38,7 @@ jobs:
         run: pnpm --filter @fme/desktop smoke
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: freematics-emulator-${{ runner.os }}
+          name: open-freematics-emulator-${{ runner.os }}
           path: |
             apps/desktop/release/*.dmg
             apps/desktop/release/*.zip

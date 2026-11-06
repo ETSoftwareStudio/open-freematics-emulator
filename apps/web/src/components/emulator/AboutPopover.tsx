@@ -6,8 +6,8 @@ export function AboutPopover() {
   return (
     <Popover>
       <PopoverTrigger
-        title="About Freematics Emulator"
-        aria-label="About Freematics Emulator"
+        title="About Open Freematics Emulator"
+        aria-label="About Open Freematics Emulator"
         className="flex size-7 shrink-0 cursor-default items-center justify-center rounded-md outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-accent"
       >
         <img src="/favicon.svg" alt="" className="size-5" />
@@ -16,7 +16,7 @@ export function AboutPopover() {
         <div className="flex flex-col items-center pt-1 text-center">
           <img src="/favicon.svg" alt="" className="size-16" />
           <PopoverTitle className="mt-3 font-semibold text-[0.9375rem] leading-tight">
-            Freematics Emulator
+            Open Freematics Emulator
           </PopoverTitle>
           <p className="mt-1 text-muted-foreground text-xs tabular-nums">Version {version}</p>
           <p className="mt-3 text-pretty text-xs">

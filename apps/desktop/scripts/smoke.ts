@@ -11,15 +11,15 @@ const release = NodePath.resolve(import.meta.dirname, "../release");
 const arm = process.arch === "arm64" ? "-arm64" : "";
 const layouts = {
   darwin: {
-    exe: `mac${arm}/Freematics Emulator.app/Contents/MacOS/Freematics Emulator`,
-    app: `mac${arm}/Freematics Emulator.app/Contents/Resources/app`,
+    exe: `mac${arm}/Open Freematics Emulator.app/Contents/MacOS/Open Freematics Emulator`,
+    app: `mac${arm}/Open Freematics Emulator.app/Contents/Resources/app`,
   },
   win32: {
-    exe: `win${arm}-unpacked/Freematics Emulator.exe`,
+    exe: `win${arm}-unpacked/Open Freematics Emulator.exe`,
     app: `win${arm}-unpacked/resources/app`,
   },
   linux: {
-    exe: `linux${arm}-unpacked/freematics-emulator`,
+    exe: `linux${arm}-unpacked/open-freematics-emulator`,
     app: `linux${arm}-unpacked/resources/app`,
   },
 };
@@ -71,7 +71,7 @@ try {
   });
   const health = await fetch(`http://127.0.0.1:${port}/api/health`);
   const page = await (await fetch(`http://127.0.0.1:${port}/`)).text();
-  if (!health.ok || !page.includes("<title>Freematics Emulator</title>")) {
+  if (!health.ok || !page.includes("<title>Open Freematics Emulator</title>")) {
     throw new Error(`Unexpected responses: health ${health.status}, page ${page.slice(0, 120)}`);
   }
   console.log("bundled server started and served the UI");
