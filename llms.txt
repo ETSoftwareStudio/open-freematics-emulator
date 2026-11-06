@@ -1,0 +1,36 @@
+# Open Freematics Emulator
+
+> Open-source desktop and web app that controls the Freematics OBD-II Emulator MK2 over USB on
+> macOS, Windows and Linux. It sets PIDs, trouble codes, VIN and readiness monitors, updates the
+> MK2's firmware, and reads everything back through an ELM327 OBD-II adapter. Independent and
+> unofficial: not affiliated with Freematics.
+
+A Node server built from Effect services owns the USB serial link and speaks the MK2's AT command
+set. A React client drives it over typed WebSocket RPC, and an Electron shell bundles both. A
+simulated MK2 (V1.3 firmware behavior) lets everything run without hardware. The firmware wire
+key and images are imported from Freematics' own GUI package into the local data directory; they
+are never in the repo or a release.
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/README.md): features, quick start, desktop builds, firmware import, measured firmware behavior
+- [AGENTS.md](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/AGENTS.md): architecture, protocol facts and code conventions for contributors and coding agents
+- [Effect services](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/docs/internals/effect-services.md): rules for server code
+- [Web UI](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/docs/internals/web-ui.md): rules for the React client
+- [Testing](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/docs/internals/testing.md): how to write tests
+- [Test the app](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/.agents/skills/test-emulator-app/SKILL.md): run the app and verify a change on the simulator or a real MK2
+
+## Protocol and contracts
+
+- [RPC contract](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/packages/contracts/src/rpc.ts): every WebSocket RPC the client can call
+- [Emulator state](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/packages/contracts/src/emulator.ts): state, inputs and errors as Effect Schemas
+- [AT commands](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/packages/shared/src/atCommands.ts): command builders for the MK2's AT command set
+- [PID catalog](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/packages/shared/src/pids.ts): supported PIDs with SAE J1979 encoders
+- [Simulated device](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/apps/server/src/device/SimulatedDevice.ts): in-memory model of the MK2 firmware and an ELM327 adapter
+
+## Optional
+
+- [Emulator session](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/apps/server/src/emulator/EmulatorSession.ts): the service that owns device state
+- [Firmware updater](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/apps/server/src/firmware/FirmwareUpdater.ts): flashing through the MK2 bootloader
+- [OBD reader](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/apps/server/src/obd/ObdReader.ts): reads the emulator back through an ELM327 adapter
+- [License](https://raw.githubusercontent.com/ETSoftwareStudio/open-freematics-emulator/main/LICENSE): MIT
