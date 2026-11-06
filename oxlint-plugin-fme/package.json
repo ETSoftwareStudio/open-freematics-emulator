@@ -1,6 +1,7 @@
 {
   "name": "@fme/oxlint-plugin",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -97,10 +97,11 @@ Importing does not flash anything. Updating the selected device still requires t
    checked by reading the value back from the device. ✅ (`vp run hardware:check`: 20/20 on a V1.2
    unit and again after flashing it to V1.3; UI driven in the browser against the same unit.)
 6. **Firmware updates** – flash an official image through the MK2's bootloader from the Firmware
-   inspector, with no Windows updater. ✅ (A real unit taken from V1.2 to V1.3.) You supply the
-   `.hex` from Freematics' GUI package and the bootloader's 16-byte wire key; the key is checked
-   against a known hash, used for that update only, and never stored. Nothing addresses flash
-   below `0x08003800`, where the vendor bootloader lives.
+   inspector, with no Windows updater. ✅ (A real unit taken from V1.2 to V1.3.) The images and
+   the bootloader's 16-byte wire key come from Freematics' own GUI package (see
+   [Firmware import](#firmware-import)); the key is checked against a known hash and kept only in
+   the app's local data directory, never in this repo or a release. Nothing addresses flash below
+   `0x08003800`, where the vendor bootloader lives.
 
 **Additional: wireless.**
 
@@ -153,3 +154,8 @@ docs/internals      Conventions for contributors and agents (start from AGENTS.m
 | `vp run test`        | Runs every package's tests                          |
 | `vp run typecheck`   | Type-checks every package                           |
 | `vp run check`       | Format check, lint, typecheck and tests             |
+
+## License
+
+[MIT](LICENSE). Portions are derived from other MIT-licensed software; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

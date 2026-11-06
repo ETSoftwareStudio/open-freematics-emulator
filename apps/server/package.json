@@ -2,6 +2,7 @@
   "name": "@fme/server",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "bin": {
     "fme": "./src/bin.ts"
   },
