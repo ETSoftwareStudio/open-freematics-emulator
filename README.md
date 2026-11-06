@@ -14,6 +14,24 @@ shared with a React client.
 > It is not affiliated with, endorsed by or supported by Freematics. Freematics and its product
 > names are trademarks of their owner, used here only to say which device the app works with.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/emulator-dark.png">
+  <img src="docs/media/emulator-light.png" alt="The Emulator screen: RPM and speed gauges, warning lamps, scenario presets, the PID inspector and the AT console">
+</picture>
+
+The **Emulator** screen sets what the car reports: drag or type on the gauges, apply a scenario
+preset, add trouble codes, and watch every AT command in the console.
+
+![A short tour: dragging the RPM, speed, fuel and coolant needles around their dials, applying presets, then the scan tool reading the same values back](docs/media/demo.gif)
+
+The **Scan tool** screen reads it all back through an ELM327 adapter plugged into the emulator,
+the way a real OBD-II reader would, and flags any value that doesn't match.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/scan-tool-dark.png">
+  <img src="docs/media/scan-tool-light.png" alt="The Scan tool screen: live PID readback with Match results, trouble codes, readiness and the adapter traffic log">
+</picture>
+
 ## Install
 
 - **macOS:** `brew install --cask etsoftwarestudio/tap/open-freematics-emulator`
