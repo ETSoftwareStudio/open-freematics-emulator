@@ -1,39 +1,50 @@
 name: Release
 
-# Push a tag that matches apps/desktop/package.json's version (v0.2.0, or v0.2.0-beta.1 for a
-# prerelease) to build every installer, publish a GitHub Release, publish the npm package and
-# update the Homebrew tap. See RELEASING.md.
+# release-please keeps a release PR open on main; merging it creates a draft GitHub Release and
+# its tag, and the jobs below build, publish and un-draft it. Publishing lives here because a tag
+# created with GITHUB_TOKEN starts no other workflow. See RELEASING.md.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: read
 
-concurrency:
-  group: release-${{ github.ref }}
-
 jobs:
-  verify:
-    name: Verify
+  release-please:
+    name: release-please
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-please
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      prerelease: ${{ steps.version.outputs.prerelease }}
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      # The release PR gets no pull_request runs (GITHUB_TOKEN), so start CI on it.
+      - name: Run CI on the release PR
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref release-please--branches--main
+
+  check:
+    name: Check
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - id: version
-        name: Match the tag to the app version
-        run: |
-          version=$(node -p 'require("./apps/desktop/package.json").version')
-          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match apps/desktop/package.json version $version"
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          case "$version" in *-*) echo "prerelease=true" ;; *) echo "prerelease=false" ;; esac >> "$GITHUB_OUTPUT"
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -43,7 +54,7 @@ jobs:
       - run: pnpm exec vp run check
 
   desktop:
-    needs: verify
+    needs: check
     uses: ./.github/workflows/desktop.yml
     with:
       sign: true
@@ -52,7 +63,7 @@ jobs:
 
   npm-package:
     name: npm package
-    needs: verify
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -75,7 +86,7 @@ jobs:
 
   github-release:
     name: GitHub Release
-    needs: [verify, desktop, npm-package]
+    needs: [release-please, desktop, npm-package]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -85,23 +96,21 @@ jobs:
           pattern: desktop-*
           path: dist
           merge-multiple: true
-      - name: Publish the release
+      - name: Upload the installers and publish the draft
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.verify.outputs.version }}
-          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+          VERSION: ${{ needs.release-please.outputs.version }}
         run: |
           cd dist
           sha256sum -- * > SHA256SUMS.txt
-          flags=()
-          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" ./* \
-            --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
-            --title "Open Freematics Emulator $VERSION" "${flags[@]}"
+          gh release upload "$TAG" ./* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest \
+            --title "Open Freematics Emulator $VERSION"
 
   npm:
     name: Publish to npm
-    needs: [verify, github-release]
+    needs: [release-please, github-release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -119,17 +128,13 @@ jobs:
           name: npm-package
       - name: Publish
         env:
-          VERSION: ${{ needs.verify.outputs.version }}
-          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
-        run: |
-          tag=latest
-          if [ "$PRERELEASE" = "true" ]; then tag=next; fi
-          npm publish "open-freematics-emulator-$VERSION.tgz" --access public --tag "$tag"
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: npm publish "open-freematics-emulator-$VERSION.tgz" --access public
 
   homebrew:
     name: Update the Homebrew tap
-    needs: [verify, github-release]
-    if: vars.HOMEBREW_TAP != '' && needs.verify.outputs.prerelease == 'false'
+    needs: [release-please, github-release]
+    if: vars.HOMEBREW_TAP != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -147,7 +152,7 @@ jobs:
           path: tap
       - name: Write and push the cask
         env:
-          VERSION: ${{ needs.verify.outputs.version }}
+          VERSION: ${{ needs.release-please.outputs.version }}
         run: |
           arm64=$(sha256sum "dist/open-freematics-emulator-$VERSION-mac-arm64.dmg" | cut -d' ' -f1)
           x64=$(sha256sum "dist/open-freematics-emulator-$VERSION-mac-x64.dmg" | cut -d' ' -f1)
