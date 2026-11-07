@@ -81,9 +81,14 @@ are no cards: group settings in inspector groups and data in panes.
 
 In the desktop app the toolbar is the title bar: it carries the `drag-region` utility, and
 `useWindowChrome()` says where the platform's window buttons sit. The renderer is sandboxed, so
-the user agent is the only signal; the preload exposes nothing but `window.fme.appearance`.
+the user agent is the only signal; the preload exposes nothing but `window.fme` from
+[`lib/desktopBridge.ts`](../../apps/web/src/lib/desktopBridge.ts).
+
+The desktop window loads the web app from the fixed origin `fme://app`, not from the bundled
+server (a new port each launch), so localStorage and `usePersistentState` survive restarts. The
+RPC client connects to the server through `window.fme.serverUrl`.
 
 `useAppearance()` is System, Light or Dark. The browser keeps it in localStorage; the desktop app
-keeps it in the main process (the page's origin changes each launch) and sets
+keeps it in the main process, which applies it before the window loads, and sets
 `nativeTheme.themeSource`, so the page only ever follows `prefers-color-scheme`. The inline script
 in `index.html` applies it before first paint. The round dials stay dark in both.

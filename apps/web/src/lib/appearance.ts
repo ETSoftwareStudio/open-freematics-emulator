@@ -1,24 +1,12 @@
 import { useSyncExternalStore } from "react";
+import { desktopBridge } from "./desktopBridge";
 
 export const APPEARANCES = ["system", "light", "dark"] as const;
 export type Appearance = (typeof APPEARANCES)[number];
 
-/** What the desktop app's preload exposes; absent in a plain browser. */
-interface AppearanceBridge {
-  get(): Promise<Appearance>;
-  set(appearance: Appearance): Promise<void>;
-  onChange(listener: (appearance: Appearance) => void): () => void;
-}
-
-declare global {
-  interface Window {
-    fme?: { appearance: AppearanceBridge };
-  }
-}
-
 // Read by the inline script in index.html too, before React renders.
 const STORAGE_KEY = "fme:appearance";
-const bridge = window.fme?.appearance;
+const bridge = desktopBridge?.appearance;
 const darkQuery = matchMedia("(prefers-color-scheme: dark)");
 
 const isAppearance = (value: unknown): value is Appearance =>
