@@ -26,12 +26,14 @@ export interface ServerOptions {
   readonly webRoot: string | null;
   /** Where user presets are saved. */
   readonly dataDir: string;
+  /** The desktop window's origin, which serves the web app itself and only talks to `/ws` here. */
+  readonly appOrigin: string | null;
 }
 
 export const makeLayer = (options: ServerOptions) =>
   HttpRouter.serve(
     Layer.mergeAll(
-      Http.localOnlyLayer,
+      Http.localOnlyLayer(options.appOrigin),
       Ws.layer,
       Http.healthLayer,
       options.webRoot === null ? Layer.empty : Http.staticLayer(options.webRoot),

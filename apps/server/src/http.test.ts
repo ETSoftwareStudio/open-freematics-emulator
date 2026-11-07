@@ -17,4 +17,15 @@ describe("isLocalRequest", () => {
   ] as const)("%s", (_, host, origin, allowed) => {
     expect(isLocalRequest({ host, origin })).toBe(allowed);
   });
+
+  it.each([
+    ["the desktop window", "127.0.0.1:52731", "fme://app", "fme://app", true],
+    ["the desktop origin without the flag", "127.0.0.1:52731", "fme://app", null, false],
+    ["another custom scheme", "127.0.0.1:52731", "evil://app", "fme://app", false],
+    ["a lookalike host", "127.0.0.1:52731", "fme://app.evil", "fme://app", false],
+    ["the desktop origin on a rebound host", "evil.example:52731", "fme://app", "fme://app", false],
+    ["its own served page", "127.0.0.1:52731", "http://127.0.0.1:52731", "fme://app", true],
+  ] as const)("with an app origin: %s", (_, host, origin, appOrigin, allowed) => {
+    expect(isLocalRequest({ host, origin }, appOrigin)).toBe(allowed);
+  });
 });
