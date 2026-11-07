@@ -16,6 +16,8 @@ const { values } = NodeUtil.parseArgs({
     "web-root": { type: "string" },
     // The desktop app passes Electron's userData directory.
     "data-dir": { type: "string" },
+    // The desktop app loads the web app from its own origin and connects to `/ws` from there.
+    "app-origin": { type: "string" },
   },
 });
 
@@ -44,4 +46,5 @@ Server.makeLayer({
   port: Number(values.port),
   webRoot: values.dev ? null : webRoot,
   dataDir: NodePath.resolve(values["data-dir"] ?? defaultDataDir()),
+  appOrigin: values["app-origin"] ?? null,
 }).pipe(Layer.launch, NodeRuntime.runMain);
