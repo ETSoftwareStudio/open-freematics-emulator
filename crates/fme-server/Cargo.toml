@@ -11,15 +11,19 @@ publish.workspace = true
 aes.workspace = true
 fme-core.workspace = true
 indexmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 serialport.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

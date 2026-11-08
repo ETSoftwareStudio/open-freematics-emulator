@@ -17,9 +17,11 @@ serialport = "4"
 serde = { version = "1", features = ["derive"] }
 # JavaScript objects keep insertion order, and so must JSON values crossing the wire.
 serde_json = { version = "1", features = ["preserve_order"] }
+tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
 tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

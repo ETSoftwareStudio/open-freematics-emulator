@@ -25,7 +25,7 @@ branded_string! {
 pub const MAX_PRESET_NAME_LENGTH: usize = 40;
 
 /// `Schema.Trim` decodes by trimming, then the name must be non-empty and short.
-fn preset_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+pub fn preset_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
     let name = String::deserialize(deserializer)?;
     let trimmed = js::trim(&name);
     if trimmed.is_empty() || js::length(trimmed) > MAX_PRESET_NAME_LENGTH {
