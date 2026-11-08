@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["apps/desktop-tauri/src-tauri", "crates/*"]
+# The Tauri shell needs the platform's webview libraries, so plain cargo commands skip it.
+default-members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
@@ -12,6 +14,7 @@ publish = false
 aes = "0.8"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "ws"] }
 fme-core = { path = "crates/fme-core" }
+fme-server = { path = "crates/fme-server" }
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 getrandom = "0.4"
 indexmap = { version = "2", features = ["serde"] }
@@ -26,6 +29,11 @@ sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 # JavaScript objects keep insertion order, and so must JSON values crossing the wire.
 serde_json = { version = "1", features = ["preserve_order"] }
+tauri = "2.12"
+tauri-build = "2.7"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
@@ -54,3 +62,10 @@ unimplemented = "deny"
 unwrap_used = "deny"
 await_holding_lock = "deny"
 let_underscore_must_use = "deny"
+
+# The desktop app and `fme` ship these binaries: smaller downloads over build time and peak speed.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

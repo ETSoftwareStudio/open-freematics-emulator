@@ -50,6 +50,11 @@ Shells inside Electron apps may export `ELECTRON_RUN_AS_NODE=1`, which turns Ele
 Node; unset it. After closing the window, check that the server is gone and the serial port is
 free (`lsof /dev/cu.X`). For packages, `vp run desktop:dist` then `vp run @fme/desktop#smoke`.
 
+The Tauri app: `vp run desktop:tauri` builds and opens it, `vp run desktop:tauri:dev` opens it on
+Vite. `vp run desktop:tauri:dist` packages it (add `--bundles app` on a headless Mac, where the
+DMG step's Finder script times out), then `vp run @fme/desktop-tauri#smoke`. `FME_DATA_DIR`
+points it at a scratch data dir. It runs the server in-process, so quitting it frees the port.
+
 ## Verify against hardware without a browser
 
 With the dev server connected to nothing, run `vp run hardware:check` (or

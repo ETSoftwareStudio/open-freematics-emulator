@@ -33,6 +33,10 @@ Both sides write to one `TrafficLog`.
 - `apps/desktop` – Electron shell. It runs the bundled server on Electron's own Node (a child
   process on a free local port) and opens the UI in a window; no Node access in the renderer.
   Plain Node code, not Effect. Keep it thin: features belong in the server or the UI.
+- `apps/desktop-tauri` – Tauri 2 shell, under validation to replace Electron. Its crate runs
+  `fme-server` in-process on a free loopback port and loads the web app from Tauri's own origin.
+  Plain cargo commands skip it (it needs the webview libraries); lint it with
+  `cargo clippy -p fme-desktop`. Keep it thin too.
 - `packages/contracts` – Effect Schema contracts only. Anything crossing the wire is typed here.
 - `packages/shared` – pure helpers with subpath exports and no barrel.
 - `oxlint-plugin-fme` – custom lint rules that enforce the conventions below.

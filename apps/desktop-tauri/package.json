@@ -1,0 +1,19 @@
+{
+  "name": "@fme/desktop-tauri",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Desktop app for the Freematics OBD-II Emulator MK2, on Tauri",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "tauri build --no-bundle && node scripts/start.ts",
+    "dev": "tauri dev",
+    "dist": "tauri build",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke.ts"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4",
+    "@types/node": "catalog:"
+  }
+}

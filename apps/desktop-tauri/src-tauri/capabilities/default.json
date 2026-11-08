@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The main window: appearance calls, its change event, and dragging the toolbar.",
+  "windows": ["main"],
+  "permissions": [
+    "allow-appearance-get",
+    "allow-appearance-set",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize"
+  ]
+}
