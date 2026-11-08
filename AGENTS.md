@@ -36,6 +36,8 @@ Both sides write to one `TrafficLog`.
 - `packages/contracts` – Effect Schema contracts only. Anything crossing the wire is typed here.
 - `packages/shared` – pure helpers with subpath exports and no barrel.
 - `oxlint-plugin-fme` – custom lint rules that enforce the conventions below.
+- `crates/` – the Rust port of the server (in progress on this branch). Read
+  [Rust services](docs/internals/rust-services.md) before adding Rust code.
 - `.repos/` – read-only reference sources (Effect v4 at the installed version). Never edit or
   import from them. Run `vp run sync:repos` if missing or after bumping `effect`.
 

@@ -8,3 +8,6 @@ dist
 .repos
 .stage
 release
+
+# Rust
+target
