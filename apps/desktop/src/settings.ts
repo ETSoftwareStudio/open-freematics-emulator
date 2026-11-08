@@ -3,10 +3,7 @@ import * as NodePath from "node:path";
 import { app } from "electron";
 import { isAppearance, type Appearance } from "./appearance.ts";
 
-/**
- * Settings the main process keeps. The page's localStorage can't hold them: the bundled server
- * listens on a new port each launch, so the page's origin changes.
- */
+/** Settings the main process keeps: it applies them before the window loads. */
 export interface Settings {
   readonly appearance: Appearance;
 }

@@ -1,6 +1,8 @@
 import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
 import * as NodeNet from "node:net";
 import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
 import {
   BrowserWindow,
   Menu,
@@ -8,10 +10,13 @@ import {
   dialog,
   ipcMain,
   nativeTheme,
+  net,
+  protocol,
   shell,
   type MenuItemConstructorOptions,
 } from "electron";
 import { APPEARANCE_CHANNELS, isAppearance, type Appearance } from "./appearance.ts";
+import { APP_ORIGIN, APP_SCHEME, SERVER_URL_ARG } from "./origin.ts";
 import { readSettings, writeSettings } from "./settings.ts";
 
 const SERVER_ENTRY = NodePath.join(import.meta.dirname, "server", "bin.mjs");
@@ -54,7 +59,7 @@ const freePort = () =>
 
 /** Runs the bundled server on Electron's own Node, so the app needs no separate runtime. */
 const startServer = (port: number) =>
-  new Promise<string>((resolve, reject) => {
+  new Promise<void>((resolve, reject) => {
     const child = NodeChildProcess.spawn(
       process.execPath,
       [
@@ -65,6 +70,8 @@ const startServer = (port: number) =>
         WEB_ROOT,
         "--data-dir",
         app.getPath("userData"),
+        "--app-origin",
+        APP_ORIGIN,
       ],
       { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "pipe"] },
     );
@@ -79,7 +86,7 @@ const startServer = (port: number) =>
       // The server logs this once the HTTP listener is bound.
       if (!started && text.includes("Listening on")) {
         started = true;
-        resolve(`http://127.0.0.1:${port}`);
+        resolve();
       }
     };
     child.stdout.on("data", collect);
@@ -170,7 +177,23 @@ const buildMenu = () => {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 };
 
-const createWindow = (url: string) => {
+/** Serves the built web app at `APP_ORIGIN`, files only, never outside `WEB_ROOT`. */
+const serveWebApp = () =>
+  protocol.handle(APP_SCHEME, (request) => {
+    const url = new URL(request.url);
+    const file = NodePath.join(WEB_ROOT, url.pathname === "/" ? "index.html" : url.pathname);
+    const found =
+      url.host === new URL(APP_ORIGIN).host &&
+      file.startsWith(WEB_ROOT + NodePath.sep) &&
+      NodeFS.statSync(file, { throwIfNoEntry: false })?.isFile() === true;
+    if (!found) return new Response("Not found", { status: 404 });
+    return net.fetch(NodeURL.pathToFileURL(file).toString());
+  });
+
+// Node's URL gives every non-http scheme the origin "null", so compare scheme and host instead.
+const sameOrigin = (a: URL, b: URL) => a.protocol === b.protocol && a.host === b.host;
+
+const createWindow = (url: string, serverUrl: string | null) => {
   const window = new BrowserWindow({
     width: 1320,
     height: 900,
@@ -184,7 +207,12 @@ const createWindow = (url: string) => {
     ...(IS_MAC
       ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 20, y: 19 } }
       : { titleBarStyle: "hidden", titleBarOverlay: titleBarOverlay() }),
-    webPreferences: { sandbox: true, contextIsolation: true, preload: PRELOAD },
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      preload: PRELOAD,
+      additionalArguments: serverUrl === null ? [] : [`${SERVER_URL_ARG}${serverUrl}`],
+    },
   });
   window.once("ready-to-show", () => window.show());
   // Only the local server's pages load in the window; links leave for the system browser.
@@ -193,10 +221,15 @@ const createWindow = (url: string) => {
     return { action: "deny" };
   });
   window.webContents.on("will-navigate", (event, target) => {
-    if (new URL(target).origin !== new URL(url).origin) event.preventDefault();
+    if (!sameOrigin(new URL(target), new URL(url))) event.preventDefault();
   });
   void window.loadURL(url);
 };
+
+// Standard + secure gives the scheme an origin, localStorage and a secure context. Runs before ready.
+protocol.registerSchemesAsPrivileged([
+  { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+]);
 
 // A second instance would fight the first over the serial port.
 if (!app.requestSingleInstanceLock()) {
@@ -242,9 +275,16 @@ if (!app.requestSingleInstanceLock()) {
     // Unpackaged runs live in the stock Electron bundle, whose Dock icon is Electron's.
     if (!app.isPackaged) app.dock?.setIcon(ICON);
     try {
-      // FME_DESKTOP_URL points the window at the dev server instead of the bundled server.
-      const url = process.env.FME_DESKTOP_URL ?? (await startServer(await freePort()));
-      createWindow(url);
+      // FME_DESKTOP_URL points the window at the dev server, which also proxies `/ws`.
+      const devUrl = process.env.FME_DESKTOP_URL;
+      if (devUrl !== undefined) {
+        createWindow(devUrl, null);
+      } else {
+        const port = await freePort();
+        await startServer(port);
+        serveWebApp();
+        createWindow(`${APP_ORIGIN}/`, `ws://127.0.0.1:${port}/ws`);
+      }
     } catch (error) {
       quitting = true;
       server?.kill();
