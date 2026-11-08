@@ -57,6 +57,10 @@ const FINISH_TIMEOUT = Duration.seconds(1);
 export const ERASE_TIMEOUT = Duration.seconds(10);
 const WRITE_TIMEOUT = Duration.seconds(5);
 export const RUN_SETTLE = Duration.millis(200);
+// Acks don't name their command, so a repeat could pass for the next command's ack. Whatever lands
+// this soon after a reply is dropped before the next command: about 38 byte-times at 38400 baud,
+// several ack frames (1.3 ms each) plus USB-serial and timer latency.
+export const REPLY_SETTLE = Duration.millis(10);
 
 export class FirmwareUpdater extends Context.Service<
   FirmwareUpdater,
@@ -246,7 +250,9 @@ const make = Effect.gen(function* () {
       timeout: Duration.Duration,
     ) {
       yield* post(command, payload);
-      return yield* within(nextReply, timeout);
+      const reply = yield* within(nextReply, timeout);
+      yield* Effect.sleep(REPLY_SETTLE);
+      return reply;
     });
 
     const command = Effect.fn("FirmwareUpdater.command")(function* (
@@ -264,6 +270,7 @@ const make = Effect.gen(function* () {
         }),
         timeout,
       );
+      yield* Effect.sleep(REPLY_SETTLE);
     });
 
     return {

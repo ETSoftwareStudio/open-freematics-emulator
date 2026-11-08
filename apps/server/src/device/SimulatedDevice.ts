@@ -3,6 +3,7 @@ import { parseRawBytes, formatHexBytes } from "@fme/shared/atCommands";
 import { makeLineFramer } from "@fme/shared/lineFramer";
 import { findPid } from "@fme/shared/pids";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
@@ -276,6 +277,10 @@ export class SimulatedElm327 {
 export const SIMULATED_CHIP_ID = Uint8Array.from(Buffer.from("0123456789abcdef01234567", "hex"));
 /** Stands in for the vendor bootloader below the application, so tests can see it untouched. */
 export const SIMULATED_BOOTLOADER_BYTE = 0xb1;
+/** Under `duplicateAcks`, how long an ack takes, and how much later its copy follows. */
+export const ACK_DELAY = Duration.millis(5);
+export const DUPLICATE_DELAY = Duration.millis(1);
+const ACK_REPLY = encodeReplyFrame(BootloaderCommand.ack, Uint8Array.of(0));
 
 /**
  * The MK2 bootloader as a real V1.2 unit answered a read-only probe: after `ATR` (never before) it
@@ -297,11 +302,18 @@ export class SimulatedBootloader {
   chattyCommand: number | null = null;
   /** A command whose reply comes again in a later read, like one that arrived after a timeout. */
   lateCommand: number | null = null;
+  /** Sends each ack `ACK_DELAY` late, then a copy that must not pass for the next command's ack. */
+  duplicateAcks = false;
+  /** Commands that arrived while an ack held back by `duplicateAcks` was still due. */
+  commandsBeforeAck = 0;
+  /** Acks held back by `duplicateAcks` and not sent yet. */
+  acksDue = 0;
   readonly received: Array<number> = [];
   /** Runs when the application starts after a flash that wrote something. */
   onFlashed: (() => void) | null = null;
   private wrote = false;
   private late: Array<number> = [];
+  private held = 0;
   private text = "";
   private frame: Array<number> | null = null;
 
@@ -314,6 +326,13 @@ export class SimulatedBootloader {
     const late = Uint8Array.from(this.late);
     this.late = [];
     return late;
+  }
+
+  /** How many acks `duplicateAcks` held back since last asked; each is sent twice, later. */
+  takeHeldAcks(): number {
+    const held = this.held;
+    this.held = 0;
+    return held;
   }
 
   /** Bytes in, bytes out. Text the bootloader isn't waiting for is dropped. */
@@ -354,8 +373,14 @@ export class SimulatedBootloader {
     if (Result.isFailure(decoded)) return new Uint8Array();
     const { command, payload } = decoded.success;
     this.received.push(command);
+    if (this.acksDue > 0) this.commandsBeforeAck++;
     if (command === this.silentCommand) return new Uint8Array();
     const reply = this.reply(command, payload);
+    if (this.duplicateAcks && Buffer.from(reply).equals(ACK_REPLY)) {
+      this.acksDue++;
+      this.held++;
+      return new Uint8Array();
+    }
     if (command === this.lateCommand) this.late.push(...reply);
     return command === this.chattyCommand
       ? Uint8Array.of(...encodeReplyFrame(command, Uint8Array.of(1)), ...reply)
@@ -442,26 +467,36 @@ const make = (version: SimulatedVersion) =>
       handle: (line: string) => string,
       withBootloader: boolean,
     ) {
+      const scope = yield* Effect.scope;
       const output = yield* Effect.acquireRelease(Queue.unbounded<string>(), Queue.shutdown);
       const frame = makeLineFramer();
-      const write = (data: string | Uint8Array) =>
-        Effect.sync(() => {
-          const bytes = typeof data === "string" ? Buffer.from(data, "latin1") : data;
-          if (withBootloader && bootloader.mode !== "off") {
-            for (const reply of [bootloader.receive(bytes), bootloader.takeLate()]) {
-              if (reply.length > 0)
-                Queue.offerUnsafe(output, Buffer.from(reply).toString("latin1"));
-            }
-            if (bootloader.mode !== "armed") return;
+      const sendAck = Queue.offer(output, Buffer.from(ACK_REPLY).toString("latin1"));
+      const ackTwice = Effect.gen(function* () {
+        yield* Effect.sleep(ACK_DELAY);
+        bootloader.acksDue--;
+        yield* sendAck;
+        yield* Effect.sleep(DUPLICATE_DELAY);
+        yield* sendAck;
+      });
+      const write = Effect.fn("SimulatedDevice.write")(function* (data: string | Uint8Array) {
+        const bytes = typeof data === "string" ? Buffer.from(data, "latin1") : data;
+        if (withBootloader && bootloader.mode !== "off") {
+          for (const reply of [bootloader.receive(bytes), bootloader.takeLate()]) {
+            if (reply.length > 0) Queue.offerUnsafe(output, Buffer.from(reply).toString("latin1"));
           }
-          for (const line of frame(Buffer.from(bytes).toString("latin1"))) {
-            Queue.offerUnsafe(output, handle(line));
-            // A reset restarts into the bootloader, which then listens for the updater.
-            if (withBootloader && line.replaceAll(" ", "").toUpperCase() === "ATR") {
-              bootloader.mode = "armed";
-            }
+          for (let held = bootloader.takeHeldAcks(); held > 0; held--) {
+            yield* Effect.forkIn(ackTwice, scope);
           }
-        });
+          if (bootloader.mode !== "armed") return;
+        }
+        for (const line of frame(Buffer.from(bytes).toString("latin1"))) {
+          Queue.offerUnsafe(output, handle(line));
+          // A reset restarts into the bootloader, which then listens for the updater.
+          if (withBootloader && line.replaceAll(" ", "").toUpperCase() === "ATR") {
+            bootloader.mode = "armed";
+          }
+        }
+      });
       return { write, chunks: Stream.fromQueue(output) } satisfies DeviceLink;
     });
     return SimulatedDevice.of({

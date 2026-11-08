@@ -41,6 +41,10 @@ const FINISH_TIMEOUT: Duration = Duration::from_secs(1);
 pub const ERASE_TIMEOUT: Duration = Duration::from_secs(10);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 pub const RUN_SETTLE: Duration = Duration::from_millis(200);
+// Acks don't name their command, so a repeat could pass for the next command's ack. Whatever lands
+// this soon after a reply is dropped before the next command: about 38 byte-times at 38400 baud,
+// several ack frames (1.3 ms each) plus USB-serial and timer latency.
+pub const REPLY_SETTLE: Duration = Duration::from_millis(10);
 
 const STOPPED_UNEXPECTEDLY: &str = "The update stopped unexpectedly.";
 
@@ -324,7 +328,9 @@ impl Bootloader {
         timeout: Duration,
     ) -> Result<ReplyFrame, FlashError> {
         self.post(code, payload).await?;
-        Ok(within(timeout, self.next_reply()).await?)
+        let reply = within(timeout, self.next_reply()).await?;
+        tokio::time::sleep(REPLY_SETTLE).await;
+        Ok(reply)
     }
 
     /// Sends a command and waits for its acknowledgement, skipping other frames as the vendor does.
@@ -343,7 +349,9 @@ impl Bootloader {
                 }
             }
         };
-        Ok(within(timeout, acknowledged).await?)
+        within(timeout, acknowledged).await?;
+        tokio::time::sleep(REPLY_SETTLE).await;
+        Ok(())
     }
 
     async fn close(self) {
@@ -878,6 +886,19 @@ mod tests {
         }
         fixture.updater.update(simulated_update()).await.unwrap();
         assert_eq!(fixture.received().last(), Some(&command::RUN));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn waits_out_a_repeated_ack_before_the_next_command() {
+        let fixture = fixture().await;
+        fixture.simulated.lock().bootloader.duplicate_acks = true;
+        fixture.updater.update(simulated_update()).await.unwrap();
+        assert_eq!(fixture.simulated.lock().bootloader.commands_before_ack, 0);
+        let application = application();
+        assert_eq!(
+            fixture.flash(APPLICATION_BASE, application.len()),
+            application
+        );
     }
 
     #[tokio::test(start_paused = true)]

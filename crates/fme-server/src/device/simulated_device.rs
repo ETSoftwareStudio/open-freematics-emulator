@@ -3,12 +3,14 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use fme_core::contracts::emulator::ObdProtocol;
 use fme_core::js;
 use fme_core::shared::at_commands::{format_hex_bytes, parse_raw_bytes};
 use fme_core::shared::line_framer::LineFramer;
 use fme_core::shared::pids::find_pid;
+use tokio::time::Instant;
 
 use super::device_link::{DeviceLink, DeviceLinkError, LinkFuture, latin1};
 use crate::firmware::bootloader_frame::{
@@ -443,6 +445,10 @@ pub enum BootloaderMode {
     Frames,
 }
 
+/// Under `duplicate_acks`, how long an ack takes, and how much later its copy follows.
+const ACK_DELAY: Duration = Duration::from_millis(5);
+const DUPLICATE_DELAY: Duration = Duration::from_millis(1);
+
 /// The MK2 bootloader as a real V1.2 unit answered a read-only probe: after `ATR` (never before) it
 /// answers `***` with `>>>` and `Download?` with `OK.`, then takes encrypted command frames until
 /// it's told to run the application. Erase and write follow the vendor updater's capture. The real
@@ -462,9 +468,15 @@ pub struct SimulatedBootloader {
     pub chatty_command: Option<u8>,
     /// A command whose reply comes again in a later read, like one that arrived after a timeout.
     pub late_command: Option<u8>,
+    /// Sends each ack `ACK_DELAY` late, then a copy that must not pass for the next command's ack.
+    pub duplicate_acks: bool,
+    /// Commands that arrived while an ack held back by `duplicate_acks` was still due.
+    pub commands_before_ack: u32,
     pub received: Vec<u8>,
     wrote: bool,
     late: Vec<u8>,
+    held_acks: u32,
+    ack_due: Option<Instant>,
     flashed: bool,
     text: Vec<u8>,
     frame: Option<Vec<u8>>,
@@ -492,9 +504,13 @@ impl SimulatedBootloader {
             silent_command: None,
             chatty_command: None,
             late_command: None,
+            duplicate_acks: false,
+            commands_before_ack: 0,
             received: Vec::new(),
             wrote: false,
             late: Vec::new(),
+            held_acks: 0,
+            ack_due: None,
             flashed: false,
             text: Vec::new(),
             frame: None,
@@ -509,6 +525,11 @@ impl SimulatedBootloader {
     /// What `late_command` sends again after its reply, since last asked.
     pub fn take_late(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.late)
+    }
+
+    /// How many acks `duplicate_acks` held back since last asked; each is sent twice, later.
+    pub fn take_held_acks(&mut self) -> u32 {
+        std::mem::take(&mut self.held_acks)
     }
 
     /// Bytes in, bytes out. Text the bootloader isn't waiting for is dropped.
@@ -560,10 +581,18 @@ impl SimulatedBootloader {
             return Vec::new();
         };
         self.received.push(decoded.command);
+        if self.ack_due.is_some_and(|due| Instant::now() < due) {
+            self.commands_before_ack += 1;
+        }
         if Some(decoded.command) == self.silent_command {
             return Vec::new();
         }
         let reply = self.reply(decoded.command, &decoded.payload);
+        if self.duplicate_acks && reply == encode_reply_frame(command::ACK, &[0]) {
+            self.held_acks += 1;
+            self.ack_due = Some(Instant::now() + ACK_DELAY);
+            return Vec::new();
+        }
         if Some(decoded.command) == self.late_command {
             self.late.extend(&reply);
         }
@@ -712,12 +741,18 @@ impl SimulatedDevice {
     }
 }
 
+/// Queues a chunk to arrive at `at`, never ahead of one queued before it, as on a serial line.
+fn send_at(output: &mut VecDeque<(Instant, String)>, at: Instant, chunk: String) {
+    let at = output.back().map_or(at, |&(last, _)| at.max(last));
+    output.push_back((at, chunk));
+}
+
 #[derive(Debug)]
 pub struct SimulatedLink {
     hardware: Arc<Mutex<SimulatedHardware>>,
     side: Side,
     framer: LineFramer,
-    output: VecDeque<String>,
+    output: VecDeque<(Instant, String)>,
 }
 
 impl SimulatedLink {
@@ -728,6 +763,7 @@ impl SimulatedLink {
             bootloader,
         } = &mut *hardware;
         let emulator = self.side == Side::Emulator;
+        let now = Instant::now();
         if emulator && bootloader.mode != BootloaderMode::Off {
             let reply = bootloader.receive(bytes);
             // The image isn't parsed: a simulated flash installs the official V1.3, as on the unit.
@@ -736,8 +772,17 @@ impl SimulatedLink {
             }
             for reply in [reply, bootloader.take_late()] {
                 if !reply.is_empty() {
-                    self.output.push_back(latin1(&reply));
+                    send_at(&mut self.output, now, latin1(&reply));
                 }
+            }
+            let ack = latin1(&encode_reply_frame(command::ACK, &[0]));
+            for _ in 0..bootloader.take_held_acks() {
+                send_at(&mut self.output, now + ACK_DELAY, ack.clone());
+                send_at(
+                    &mut self.output,
+                    now + ACK_DELAY + DUPLICATE_DELAY,
+                    ack.clone(),
+                );
             }
             if bootloader.mode != BootloaderMode::Armed {
                 return;
@@ -748,7 +793,7 @@ impl SimulatedLink {
                 Side::Emulator => firmware.handle(&line),
                 Side::Adapter => SimulatedElm327::handle(firmware, &line),
             };
-            self.output.push_back(reply);
+            send_at(&mut self.output, now, reply);
             // A reset restarts into the bootloader, which then listens for the updater.
             if emulator && normalize(&line) == "ATR" {
                 bootloader.mode = BootloaderMode::Armed;
@@ -766,10 +811,15 @@ impl DeviceLink for SimulatedLink {
     // Writes need `&mut self` too, so a pending read can only end by being dropped; the link
     // never closes on its own.
     fn next_chunk(&mut self) -> LinkFuture<'_, Option<Result<String, DeviceLinkError>>> {
-        match self.output.pop_front() {
-            Some(chunk) => Box::pin(std::future::ready(Some(Ok(chunk)))),
-            None => Box::pin(std::future::pending()),
-        }
+        Box::pin(async move {
+            let Some(&(due, _)) = self.output.front() else {
+                return std::future::pending().await;
+            };
+            if due > Instant::now() {
+                tokio::time::sleep_until(due).await;
+            }
+            self.output.pop_front().map(|(_, chunk)| Ok(chunk))
+        })
     }
 }
 

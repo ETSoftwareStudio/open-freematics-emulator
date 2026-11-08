@@ -84,14 +84,20 @@ const stateOf = Effect.gen(function* () {
   return state as FirmwareUpdateState;
 });
 
+// The image gets 11 replies: four reads, the erase, three writes and three while finishing.
+const SETTLES = Duration.times(FirmwareUpdater.REPLY_SETTLE, 11);
+// The simulated unit, like a real one, sends no readable application info.
+const FINISHING = Duration.sum(
+  SETTLES,
+  Duration.sum(FirmwareUpdater.REPLY_TIMEOUT, FirmwareUpdater.RUN_SETTLE),
+);
+
 /** Runs an update while the test clock covers the restart and any handshake retries. */
 const updateOverTime = (elapsed: Duration.Duration, input = simulatedUpdate) =>
   Effect.gen(function* () {
     const updater = yield* FirmwareUpdater.FirmwareUpdater;
     const running = yield* updater.update(input).pipe(Effect.exit, Effect.forkChild);
-    // The simulated unit, like a real one, sends no readable application info.
-    const finishing = Duration.sum(FirmwareUpdater.REPLY_TIMEOUT, FirmwareUpdater.RUN_SETTLE);
-    yield* TestClock.adjust(Duration.sum(elapsed, finishing));
+    yield* TestClock.adjust(Duration.sum(elapsed, FINISHING));
     return yield* Fiber.join(running);
   });
 
@@ -143,6 +149,23 @@ describe("FirmwareUpdater", () => {
       const exit = yield* updateOverTime(FirmwareUpdater.RESTART_DELAY);
       expect(exit._tag).toBe("Success");
       expect(bootloader.received.at(-1)).toBe(BootloaderCommand.run);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("waits out a repeated ack before the next command", () =>
+    Effect.gen(function* () {
+      const { bootloader } = yield* SimulatedDevice.SimulatedDevice;
+      bootloader.duplicateAcks = true;
+      // Erase, three writes, the end of the writes and the CRC are each acked late.
+      const exit = yield* updateOverTime(
+        Duration.sum(FirmwareUpdater.RESTART_DELAY, Duration.times(SimulatedDevice.ACK_DELAY, 6)),
+      );
+      expect(exit._tag).toBe("Success");
+      expect(bootloader.commandsBeforeAck).toBe(0);
+      const application = offset(APPLICATION_BASE);
+      expect(bootloader.flash.subarray(application, application + APPLICATION.length)).toEqual(
+        APPLICATION,
+      );
     }).pipe(Effect.provide(TestLayer)),
   );
 
@@ -218,7 +241,7 @@ describe("FirmwareUpdater", () => {
       const failed = yield* updater
         .update({ ...simulatedUpdate, image: { _tag: "file", text: tooBig } })
         .pipe(Effect.flip, Effect.forkChild);
-      yield* TestClock.adjust(FirmwareUpdater.RESTART_DELAY);
+      yield* TestClock.adjust(Duration.sum(FirmwareUpdater.RESTART_DELAY, SETTLES));
       expect(yield* Fiber.join(failed)).toMatchObject({ reason: "doesNotFit" });
 
       const exit = yield* updateOverTime(FirmwareUpdater.RESTART_DELAY);
@@ -237,12 +260,7 @@ describe("FirmwareUpdater", () => {
       );
       const second = yield* updater.update(simulatedUpdate).pipe(Effect.flip);
       expect(second).toMatchObject({ _tag: "FirmwareUpdateError", reason: "busy" });
-      yield* TestClock.adjust(
-        Duration.sum(
-          FirmwareUpdater.RESTART_DELAY,
-          Duration.sum(FirmwareUpdater.REPLY_TIMEOUT, FirmwareUpdater.RUN_SETTLE),
-        ),
-      );
+      yield* TestClock.adjust(Duration.sum(FirmwareUpdater.RESTART_DELAY, FINISHING));
       yield* Fiber.join(first);
     }).pipe(Effect.provide(TestLayer)),
   );
