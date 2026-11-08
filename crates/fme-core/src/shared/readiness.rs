@@ -1,4 +1,8 @@
+use crate::contracts::base_schemas::PidId;
 use crate::contracts::emulator::{Readiness, ReadinessMonitorId};
+
+/// Mode 01 PID 01, monitor status since DTCs cleared.
+pub static MONITOR_STATUS_PID: PidId = PidId::from_static("0101");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MonitorBits {
@@ -59,6 +63,14 @@ mod tests {
     use super::*;
     use crate::contracts::emulator::ReadinessMonitor;
     use crate::shared::default_state::make_default_state;
+
+    #[test]
+    fn names_the_monitor_status_pid() {
+        assert_eq!(
+            PidId::new(MONITOR_STATUS_PID.as_str()).ok(),
+            Some(MONITOR_STATUS_PID.clone())
+        );
+    }
 
     #[test]
     fn matches_the_official_guis_defaults_with_no_dtcs() {
