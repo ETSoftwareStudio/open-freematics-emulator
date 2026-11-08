@@ -110,6 +110,7 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "fme-core",
+ "indexmap",
  "nix 0.30.1",
  "serialport",
  "thiserror",

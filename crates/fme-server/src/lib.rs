@@ -3,4 +3,5 @@
 pub mod device;
 pub mod emulator;
 pub mod firmware;
+pub mod obd;
 pub mod traffic;
