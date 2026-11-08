@@ -80,6 +80,7 @@ export const make = Effect.fn("ElmClient.make")(function* (
         Effect.uninterruptible(
           Effect.gen(function* () {
             yield* Queue.clear(replies);
+            buffer = "";
             if (!quiet) yield* options.onTraffic("tx", command);
             yield* link
               .write(`${command}\r`)

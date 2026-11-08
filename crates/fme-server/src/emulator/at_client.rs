@@ -297,51 +297,7 @@ impl Collector<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device::device_link::{LinkFuture, latin1};
-
-    /// A link whose replies the test scripts: each written command pops the next canned reply.
-    struct ScriptedLink {
-        replies: VecDeque<Option<&'static str>>,
-        written: mpsc::UnboundedSender<String>,
-        buffered: VecDeque<String>,
-        incoming: mpsc::UnboundedReceiver<String>,
-    }
-
-    impl DeviceLink for ScriptedLink {
-        fn write<'a>(&'a mut self, data: &'a [u8]) -> LinkFuture<'a, Result<(), DeviceLinkError>> {
-            self.written.send(latin1(data)).unwrap();
-            if let Some(Some(reply)) = self.replies.pop_front() {
-                self.buffered.push_back(reply.to_owned());
-            }
-            Box::pin(std::future::ready(Ok(())))
-        }
-
-        fn next_chunk(&mut self) -> LinkFuture<'_, Option<Result<String, DeviceLinkError>>> {
-            Box::pin(async move {
-                match self.buffered.pop_front() {
-                    Some(chunk) => Some(Ok(chunk)),
-                    None => self.incoming.recv().await.map(Ok),
-                }
-            })
-        }
-    }
-
-    struct Script {
-        written: mpsc::UnboundedReceiver<String>,
-        incoming: mpsc::UnboundedSender<String>,
-    }
-
-    fn scripted(replies: &[Option<&'static str>]) -> (Box<dyn DeviceLink>, Script) {
-        let (written_tx, written) = mpsc::unbounded_channel();
-        let (incoming, incoming_rx) = mpsc::unbounded_channel();
-        let link = ScriptedLink {
-            replies: replies.iter().copied().collect(),
-            written: written_tx,
-            buffered: VecDeque::new(),
-            incoming: incoming_rx,
-        };
-        (Box::new(link), Script { written, incoming })
-    }
+    use crate::device::device_link::scripted::scripted;
 
     fn quiet() -> AtClientOptions {
         AtClientOptions {

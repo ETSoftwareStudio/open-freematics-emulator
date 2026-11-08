@@ -194,6 +194,7 @@ impl Actor {
             reply,
         } = request;
         self.replies.clear();
+        self.buffer.clear();
         if !options.quiet {
             (self.on_traffic)(TrafficDirection::Tx, &command);
         }
@@ -232,5 +233,28 @@ impl Actor {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device::device_link::scripted::scripted;
+
+    fn quiet() -> ElmClientOptions {
+        ElmClientOptions {
+            on_traffic: Box::new(|_, _| {}),
+            on_link_lost: Box::new(|_| {}),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn drops_what_a_timed_out_reply_left_behind_before_the_next_request() {
+        let (link, _script) = scripted(&[Some("SEARCHING...\r41 00"), Some("12.6V\r\r>")]);
+        let client = ElmClient::spawn(link, quiet());
+        let first = client.request("0100", RequestOptions::default()).await;
+        assert_eq!(first.unwrap_err().reason, ReaderCommandReason::Timeout);
+        let second = client.request("ATRV", RequestOptions::default()).await;
+        assert_eq!(second.unwrap(), ["12.6V"]);
     }
 }
