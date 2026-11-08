@@ -81,6 +81,9 @@ jobs:
           APPLE_API_KEY_P8: ${{ inputs.sign && secrets.APPLE_API_KEY_P8 || '' }}
           APPLE_API_KEY_ID: ${{ inputs.sign && secrets.APPLE_API_KEY_ID || '' }}
           APPLE_API_ISSUER: ${{ inputs.sign && secrets.APPLE_API_ISSUER || '' }}
+          # linuxdeploy's bundled strip can't read newer binaries; runners have no FUSE for AppImages.
+          NO_STRIP: ${{ runner.os == 'Linux' }}
+          APPIMAGE_EXTRACT_AND_RUN: ${{ runner.os == 'Linux' && '1' || '' }}
         run: |
           if [ "$SIGN" = "true" ] && [ -n "$MAC_CERTIFICATE" ]; then
             # The Tauri bundler signs with these and notarizes with the App Store Connect API key.
