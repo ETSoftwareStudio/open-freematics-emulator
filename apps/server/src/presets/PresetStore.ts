@@ -105,12 +105,15 @@ const make = Effect.fn("PresetStore.make")(function* (options: { readonly dataDi
 
   const persist = Effect.fn("PresetStore.persist")(
     function* (presets: ReadonlyArray<StoredPreset>) {
-      // Written beside the file, then renamed over it, so a crash never leaves half a file.
+      // Written beside the file, then renamed over it, so a crash never leaves half a file. A
+      // failed write or rename removes the temp file.
       const temporary = `${file}.${yield* crypto.randomUUIDv4()}.tmp`;
       const contents = yield* encodePresetFile({ version: 1, presets });
       yield* fileSystem.makeDirectory(options.dataDir, { recursive: true });
-      yield* fileSystem.writeFileString(temporary, `${contents}\n`);
-      yield* fileSystem.rename(temporary, file);
+      yield* fileSystem.writeFileString(temporary, `${contents}\n`).pipe(
+        Effect.andThen(fileSystem.rename(temporary, file)),
+        Effect.onError(() => Effect.ignore(fileSystem.remove(temporary, { force: true }))),
+      );
     },
     Effect.mapError((cause) => new PresetPersistError({ path: file, cause })),
   );

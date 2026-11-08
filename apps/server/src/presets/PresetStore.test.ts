@@ -97,6 +97,24 @@ describe("PresetStore", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("leaves no temp file behind when a save can't be written", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dataDir = yield* tempDataDir;
+      // A directory where the file goes makes the rename fail.
+      yield* fileSystem.makeDirectory(path.join(dataDir, "presets.json"), { recursive: true });
+
+      const error = yield* Effect.gen(function* () {
+        const store = yield* PresetStore.PresetStore;
+        return yield* store.save({ name: "Lost", pids: pids({ "010C": 800 }) }).pipe(Effect.flip);
+      }).pipe(Effect.provide(storeLayer(dataDir)));
+
+      expect(error._tag).toBe("PresetPersistError");
+      expect(yield* fileSystem.readDirectory(dataDir)).toEqual(["presets.json"]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("rejects changes to built-ins and to presets that don't exist", () =>
     Effect.gen(function* () {
       const store = yield* PresetStore.PresetStore;

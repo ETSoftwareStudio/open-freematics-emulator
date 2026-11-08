@@ -172,7 +172,8 @@ impl PresetStore {
 
     #[tracing::instrument(name = "PresetStore.persist", skip_all)]
     async fn persist(&self, presets: &[StoredPreset]) -> Result<(), PresetPersistError> {
-        // Written beside the file, then renamed over it, so a crash never leaves half a file.
+        // Written beside the file, then renamed over it, so a crash never leaves half a file. A
+        // failed write or rename removes the temp file.
         let temporary = with_suffix(&self.file, &format!(".{}.tmp", uuid::Uuid::new_v4()));
         let file = PresetFile {
             version: Version,
@@ -180,14 +181,18 @@ impl PresetStore {
         };
         let contents = serde_json::to_string_pretty(&file)
             .map_err(|error| self.persist_error(defect("SchemaError", &error)))?;
+        tokio::fs::create_dir_all(&self.data_dir)
+            .await
+            .map_err(|error| self.persist_error(defect("PlatformError", &error)))?;
         let written = async {
-            tokio::fs::create_dir_all(&self.data_dir).await?;
             tokio::fs::write(&temporary, format!("{contents}\n")).await?;
             tokio::fs::rename(&temporary, &self.file).await
-        };
-        written
-            .await
-            .map_err(|error| self.persist_error(defect("PlatformError", &error)))
+        }
+        .await;
+        if written.is_err() && tokio::fs::remove_file(&temporary).await.is_err() {
+            tracing::debug!("the temp file was never written");
+        }
+        written.map_err(|error| self.persist_error(defect("PlatformError", &error)))
     }
 
     async fn commit(&self, users: Vec<StoredPreset>) -> Result<(), PresetPersistError> {
@@ -397,6 +402,22 @@ mod tests {
             std::fs::read_to_string(data_dir.join("presets.json.corrupt")).unwrap(),
             r#"{"version": 1, "pre"#
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn leaves_no_temp_file_behind_when_a_save_cant_be_written() {
+        let (_root, data_dir) = temp_data_dir();
+        // A directory where the file goes makes the rename fail.
+        std::fs::create_dir_all(data_dir.join("presets.json")).unwrap();
+
+        let store = store(&data_dir).await;
+        let error = store
+            .save(save_input(None, "Lost", &[("010C", 800.0)]))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, PresetChangeError::Persist(_)), "{error:?}");
+        assert_eq!(files_in(&data_dir), ["presets.json"]);
     }
 
     #[tokio::test(start_paused = true)]
