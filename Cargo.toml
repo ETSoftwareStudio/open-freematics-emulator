@@ -10,8 +10,10 @@ publish = false
 
 [workspace.dependencies]
 fme-core = { path = "crates/fme-core" }
+indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# JavaScript objects keep insertion order, and so must JSON values crossing the wire.
+serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
 
 [workspace.lints.rust]
