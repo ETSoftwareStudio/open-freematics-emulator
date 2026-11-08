@@ -460,8 +460,11 @@ pub struct SimulatedBootloader {
     pub silent_command: Option<u8>,
     /// A command whose reply follows an unrelated frame, which the updater must skip.
     pub chatty_command: Option<u8>,
+    /// A command whose reply comes again in a later read, like one that arrived after a timeout.
+    pub late_command: Option<u8>,
     pub received: Vec<u8>,
     wrote: bool,
+    late: Vec<u8>,
     flashed: bool,
     text: Vec<u8>,
     frame: Option<Vec<u8>>,
@@ -488,8 +491,10 @@ impl SimulatedBootloader {
             reject_command: None,
             silent_command: None,
             chatty_command: None,
+            late_command: None,
             received: Vec::new(),
             wrote: false,
+            late: Vec::new(),
             flashed: false,
             text: Vec::new(),
             frame: None,
@@ -499,6 +504,11 @@ impl SimulatedBootloader {
     /// Whether the application started after a flash that wrote something, since last asked.
     pub fn take_flashed(&mut self) -> bool {
         std::mem::take(&mut self.flashed)
+    }
+
+    /// What `late_command` sends again after its reply, since last asked.
+    pub fn take_late(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.late)
     }
 
     /// Bytes in, bytes out. Text the bootloader isn't waiting for is dropped.
@@ -554,6 +564,9 @@ impl SimulatedBootloader {
             return Vec::new();
         }
         let reply = self.reply(decoded.command, &decoded.payload);
+        if Some(decoded.command) == self.late_command {
+            self.late.extend(&reply);
+        }
         if Some(decoded.command) == self.chatty_command {
             let mut chatty = encode_reply_frame(decoded.command, &[1]);
             chatty.extend(reply);
@@ -721,8 +734,10 @@ impl SimulatedLink {
             if bootloader.take_flashed() {
                 firmware.install(SimulatedVersion::V1_3);
             }
-            if !reply.is_empty() {
-                self.output.push_back(latin1(&reply));
+            for reply in [reply, bootloader.take_late()] {
+                if !reply.is_empty() {
+                    self.output.push_back(latin1(&reply));
+                }
             }
             if bootloader.mode != BootloaderMode::Armed {
                 return;

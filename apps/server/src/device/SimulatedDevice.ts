@@ -295,15 +295,25 @@ export class SimulatedBootloader {
   silentCommand: number | null = null;
   /** A command whose reply follows an unrelated frame, which the updater must skip. */
   chattyCommand: number | null = null;
+  /** A command whose reply comes again in a later read, like one that arrived after a timeout. */
+  lateCommand: number | null = null;
   readonly received: Array<number> = [];
   /** Runs when the application starts after a flash that wrote something. */
   onFlashed: (() => void) | null = null;
   private wrote = false;
+  private late: Array<number> = [];
   private text = "";
   private frame: Array<number> | null = null;
 
   constructor() {
     this.flash.fill(SIMULATED_BOOTLOADER_BYTE, 0, APPLICATION_BASE - FLASH_BASE);
+  }
+
+  /** What `lateCommand` sends again after its reply, since last asked. */
+  takeLate(): Uint8Array {
+    const late = Uint8Array.from(this.late);
+    this.late = [];
+    return late;
   }
 
   /** Bytes in, bytes out. Text the bootloader isn't waiting for is dropped. */
@@ -346,6 +356,7 @@ export class SimulatedBootloader {
     this.received.push(command);
     if (command === this.silentCommand) return new Uint8Array();
     const reply = this.reply(command, payload);
+    if (command === this.lateCommand) this.late.push(...reply);
     return command === this.chattyCommand
       ? Uint8Array.of(...encodeReplyFrame(command, Uint8Array.of(1)), ...reply)
       : reply;
@@ -437,8 +448,10 @@ const make = (version: SimulatedVersion) =>
         Effect.sync(() => {
           const bytes = typeof data === "string" ? Buffer.from(data, "latin1") : data;
           if (withBootloader && bootloader.mode !== "off") {
-            const reply = bootloader.receive(bytes);
-            if (reply.length > 0) Queue.offerUnsafe(output, Buffer.from(reply).toString("latin1"));
+            for (const reply of [bootloader.receive(bytes), bootloader.takeLate()]) {
+              if (reply.length > 0)
+                Queue.offerUnsafe(output, Buffer.from(reply).toString("latin1"));
+            }
             if (bootloader.mode !== "armed") return;
           }
           for (const line of frame(Buffer.from(bytes).toString("latin1"))) {

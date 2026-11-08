@@ -133,10 +133,12 @@ describe("FirmwareUpdater", () => {
     }).pipe(Effect.provide(layerOn("1.2"))),
   );
 
-  it.effect("waits past other frames for an acknowledgement and doesn't wait on run", () =>
+  it.effect("skips other frames, drops late ones, and doesn't wait on run", () =>
     Effect.gen(function* () {
       const { bootloader } = yield* SimulatedDevice.SimulatedDevice;
       bootloader.chattyCommand = BootloaderCommand.write;
+      // A second chip-ID reply must not be read as the answer to the serial-number request.
+      bootloader.lateCommand = BootloaderCommand.readChipId;
       bootloader.silentCommand = BootloaderCommand.run;
       const exit = yield* updateOverTime(FirmwareUpdater.RESTART_DELAY);
       expect(exit._tag).toBe("Success");

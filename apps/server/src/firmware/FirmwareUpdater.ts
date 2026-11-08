@@ -230,7 +230,9 @@ const make = Effect.gen(function* () {
       command: number,
       payload: Uint8Array,
     ) {
+      // Everything received so far is stale, queued chunks too: no late frame answers this command.
       pending = [];
+      yield* Queue.clear(incoming);
       yield* write(
         link,
         encodeCommandFrame(command, payload, wireKey),

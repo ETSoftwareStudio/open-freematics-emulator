@@ -11,6 +11,7 @@ use fme_core::contracts::firmware::{
     FirmwareUpdateInput, FirmwareUpdateReason, FirmwareUpdateStage, FirmwareUpdateState,
 };
 use fme_core::contracts::rpc::UpdateFirmwareError;
+use futures_util::FutureExt;
 use tokio::sync::{Mutex, watch};
 
 use super::bootloader_frame::{
@@ -290,9 +291,22 @@ impl Bootloader {
         }
     }
 
+    /// Drops everything received so far, buffered chunks too, so no late frame from an earlier
+    /// command is read as the reply to the next one.
+    fn discard_received(&mut self) {
+        self.pending.clear();
+        while !self.closed {
+            match self.link.next_chunk().now_or_never() {
+                Some(Some(Ok(_))) => {}
+                Some(_) => self.closed = true,
+                None => break,
+            }
+        }
+    }
+
     /// Sends a command that gets no reply.
     async fn post(&mut self, code: u8, payload: &[u8]) -> Result<(), FlashError> {
-        self.pending.clear();
+        self.discard_received();
         let frame = encode_command_frame(
             code,
             payload,
@@ -853,11 +867,13 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn waits_past_other_frames_for_an_acknowledgement_and_doesnt_wait_on_run() {
+    async fn skips_other_frames_drops_late_ones_and_doesnt_wait_on_run() {
         let fixture = fixture().await;
         {
             let mut hardware = fixture.simulated.lock();
             hardware.bootloader.chatty_command = Some(command::WRITE);
+            // A second chip-ID reply must not be read as the answer to the serial-number request.
+            hardware.bootloader.late_command = Some(command::READ_CHIP_ID);
             hardware.bootloader.silent_command = Some(command::RUN);
         }
         fixture.updater.update(simulated_update()).await.unwrap();
