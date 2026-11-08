@@ -156,15 +156,20 @@ describe("ObdReader", () => {
       }),
     );
 
-    it.effect("forgets the previous connection's results when reconnecting", () =>
+    it.effect("forgets the previous connection's results; a read waits for the reconnect", () =>
       Effect.gen(function* () {
         const reader = yield* ObdReader.ObdReader;
         yield* reader.readDtcs;
-        yield* reader.readVin;
         yield* reader.disconnect;
-        yield* reader.connect({ _tag: "simulated" });
+        const reconnecting = yield* reader.connect({ _tag: "simulated" }).pipe(Effect.forkChild);
+        yield* reader.state.pipe(
+          Stream.filter((s) => s.connection._tag === "connecting"),
+          Stream.runHead,
+        );
+        yield* reader.readVin;
+        yield* Fiber.join(reconnecting);
         const state = yield* reader.state.pipe(Stream.runHead, Effect.flatMap(Effect.fromOption));
-        expect(state).toMatchObject({ dtcs: null, vin: null });
+        expect(state).toMatchObject({ dtcs: null, vin: "1HGCD5654VA061985" });
       }),
     );
   });

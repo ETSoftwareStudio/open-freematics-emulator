@@ -271,6 +271,7 @@ struct Inner {
     state: Arc<watch::Sender<ReaderState>>,
     active: Mutex<Option<ActiveConnection>>,
     connection_ids: AtomicU64,
+    // Connect, disconnect, reads and clears run one at a time, so none uses a closing connection.
     lock: tokio::sync::Mutex<()>,
 }
 
@@ -510,6 +511,7 @@ impl ObdReader {
     /// Reads every watched PID once, logging each exchange, even while polling is paused.
     #[tracing::instrument(name = "ObdReader.readOnce", skip_all)]
     pub async fn read_once(&self) -> Result<(), ReaderOperationError> {
+        let _permit = self.inner.lock.lock().await;
         let client = self.inner.client()?;
         read_watched(&self.inner.state, &client, false).await;
         Ok(())
@@ -518,6 +520,7 @@ impl ObdReader {
     /// Reads the stored codes (Mode 03) and the MIL and readiness bits (PID 0101).
     #[tracing::instrument(name = "ObdReader.readDtcs", skip_all)]
     pub async fn read_dtcs(&self) -> Result<(), ReaderOperationError> {
+        let _permit = self.inner.lock.lock().await;
         let client = self.inner.client()?;
         Ok(read_codes(&self.inner.state, &client).await?)
     }
@@ -525,6 +528,7 @@ impl ObdReader {
     /// Clears the codes from the vehicle side (Mode 04), then reads them back.
     #[tracing::instrument(name = "ObdReader.clearDtcs", skip_all)]
     pub async fn clear_dtcs(&self) -> Result<(), ReaderOperationError> {
+        let _permit = self.inner.lock.lock().await;
         let client = self.inner.client()?;
         let reply = client.query("04", RequestOptions::SEARCH).await?;
         if !reply.iter().any(|line| is_clear_reply(line)) {
@@ -539,6 +543,7 @@ impl ObdReader {
 
     #[tracing::instrument(name = "ObdReader.readVin", skip_all)]
     pub async fn read_vin(&self) -> Result<(), ReaderOperationError> {
+        let _permit = self.inner.lock.lock().await;
         let client = self.inner.client()?;
         let lines = client.query("0902", RequestOptions::SEARCH).await?;
         self.inner
@@ -755,15 +760,19 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn forgets_the_previous_connections_results_when_reconnecting() {
+    async fn forgets_the_previous_connections_results_a_read_waits_for_the_reconnect() {
         let fixture = connected().await;
         let reader = &fixture.reader;
         reader.read_dtcs().await.unwrap();
-        reader.read_vin().await.unwrap();
         reader.disconnect().await;
-        reader.connect(ReaderTarget::Simulated).await.unwrap();
+        // The first poll leaves the connect waiting on the adapter, then starts the read.
+        let (reconnected, read) =
+            tokio::join!(reader.connect(ReaderTarget::Simulated), reader.read_vin());
+        reconnected.unwrap();
+        read.unwrap();
         let state = reader.state().borrow().clone();
-        assert_eq!((state.dtcs, state.vin), (None, None));
+        assert_eq!(state.dtcs, None);
+        assert_eq!(state.vin.as_deref(), Some("1HGCD5654VA061985"));
     }
 
     #[test]

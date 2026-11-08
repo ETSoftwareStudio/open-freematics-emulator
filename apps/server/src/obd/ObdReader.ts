@@ -95,6 +95,7 @@ const make = Effect.gen(function* () {
   const state = yield* SubscriptionRef.make(initialState);
   const active = yield* Ref.make(Option.none<ActiveConnection>());
   const connectionIds = yield* Ref.make(0);
+  // Connect, disconnect, reads and clears run one at a time, so none uses a closing connection.
   const lock = yield* Semaphore.make(1);
   const update = (f: (current: ReaderState) => ReaderState) => SubscriptionRef.update(state, f);
 
@@ -287,7 +288,7 @@ const make = Effect.gen(function* () {
 
   const readOnce = Effect.gen(function* () {
     yield* readWatched(yield* currentClient, false);
-  }).pipe(Effect.withSpan("ObdReader.readOnce"));
+  }).pipe(lock.withPermit, Effect.withSpan("ObdReader.readOnce"));
 
   const readCodes = Effect.fnUntraced(function* (client: ElmClient.ElmClient) {
     const lines = yield* client.query("03", { timeout: ElmClient.SEARCH_TIMEOUT });
@@ -304,7 +305,7 @@ const make = Effect.gen(function* () {
 
   const readDtcs = Effect.gen(function* () {
     yield* readCodes(yield* currentClient);
-  }).pipe(Effect.withSpan("ObdReader.readDtcs"));
+  }).pipe(lock.withPermit, Effect.withSpan("ObdReader.readDtcs"));
 
   const clearDtcs = Effect.gen(function* () {
     const client = yield* currentClient;
@@ -313,13 +314,13 @@ const make = Effect.gen(function* () {
       return yield* new ReaderCommandError({ command: "04", reason: "rejected" });
     }
     yield* readCodes(client);
-  }).pipe(Effect.withSpan("ObdReader.clearDtcs"));
+  }).pipe(lock.withPermit, Effect.withSpan("ObdReader.clearDtcs"));
 
   const readVin = Effect.gen(function* () {
     const client = yield* currentClient;
     const lines = yield* client.query("0902", { timeout: ElmClient.SEARCH_TIMEOUT });
     yield* update((s) => ({ ...s, vin: parseVinReply(lines) ?? null }));
-  }).pipe(Effect.withSpan("ObdReader.readVin"));
+  }).pipe(lock.withPermit, Effect.withSpan("ObdReader.readVin"));
 
   return ObdReader.of({
     state: SubscriptionRef.changes(state),
