@@ -1,6 +1,6 @@
 {
   "name": "@fme/desktop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Desktop app for the Freematics OBD-II Emulator MK2",
   "homepage": "https://freematics.com/products/freematics-obd-emulator-mk2/",
