@@ -1,8 +1,8 @@
 export type Platform = "mac" | "windows" | "linux";
 
 export interface WindowChrome {
-  /** Running in the desktop app's window rather than a browser tab. */
-  readonly electron: boolean;
+  /** Running in a desktop app's window rather than a browser tab. */
+  readonly desktop: boolean;
   readonly platform: Platform;
   /** macOS draws its traffic lights over the toolbar's leading edge. */
   readonly trafficLights: boolean;
@@ -12,7 +12,7 @@ export interface WindowChrome {
   readonly modifierLabel: string;
 }
 
-// The renderer is sandboxed with no preload, so the user agent is the only signal.
+// The Tauri shell overlays the toolbar on macOS only and keeps the native title bar elsewhere.
 const detect = (): WindowChrome => {
   const agent = navigator.userAgent;
   const hint = (navigator as Navigator & { userAgentData?: { platform: string } }).userAgentData
@@ -24,10 +24,11 @@ const detect = (): WindowChrome => {
       ? "windows"
       : "linux";
   const electron = /\bElectron\//.test(agent);
+  const desktop = electron || "__TAURI_INTERNALS__" in window;
   return {
-    electron,
+    desktop,
     platform,
-    trafficLights: electron && platform === "mac",
+    trafficLights: desktop && platform === "mac",
     windowControlsOverlay: electron && platform !== "mac",
     modifierLabel: platform === "mac" ? "⌘" : "Ctrl+",
   };
