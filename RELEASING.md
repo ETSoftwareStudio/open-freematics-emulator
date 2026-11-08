@@ -1,7 +1,7 @@
 # Releasing
 
 Merging the release PR releases everything: installers for macOS, Windows and Linux on GitHub
-Releases, the npm package behind `npx open-freematics-emulator`, and the Homebrew cask. The
+Releases, the npm packages behind `npx open-freematics-emulator`, and the Homebrew cask. The
 [Release workflow](.github/workflows/release.yml) does the work; CI runs on every push and pull
 request.
 
@@ -18,8 +18,9 @@ PR title as the commit, so the **PR title** check holds titles to the same forma
 2. When you want to ship, merge that PR.
 3. Watch **Actions → Release**. release-please creates the tag and a draft GitHub Release with the
    changelog as notes. The workflow then runs the checks, builds and smoke-tests the installers on
-   all three OSes, smoke-tests the npm package, uploads the installers and a `SHA256SUMS.txt` and
-   publishes the release, publishes to npm, and updates the Homebrew tap.
+   all three OSes, builds the `fme` server for the six npm platforms and smoke-tests the npm
+   packages, uploads the installers and a `SHA256SUMS.txt` and publishes the release, publishes to
+   npm, and updates the Homebrew tap.
 
 To force a version, add a commit to `main` with `Release-As: 1.2.0` in its body.
 
@@ -40,15 +41,34 @@ without them.
 
 ### npm
 
-The Release workflow publishes through npm's trusted publishing: npmjs.com trusts
+`npx open-freematics-emulator` installs seven packages, all at the release's version:
+
+- `open-freematics-emulator`: the launcher (`cli.mjs`) and the built web app. Its
+  `optionalDependencies` list the six platform packages.
+- `open-freematics-emulator-<os>-<cpu>` for `darwin-arm64`, `darwin-x64`, `linux-arm64`,
+  `linux-x64`, `win32-arm64` and `win32-x64`: the Rust `fme` binary, with `os`, `cpu` and, on
+  Linux, `libc: glibc`, so npm installs only the one for the user's machine.
+
+The launcher finds the platform package, starts `fme` with the user's flags and `--web-root` set to
+its web app, and opens the browser. The Release workflow builds each binary on its own runner
+(macOS x64 cross-compiles on arm64), then publishes the platform packages before the main one. A
+version already on npm is skipped, so **Re-run failed jobs** can finish a half-done publish.
+
+Publishing goes through npm's trusted publishing: npmjs.com trusts
 `ETSoftwareStudio/open-freematics-emulator`'s `release.yml` (with **Allow npm publish** on), so no
-npm token is stored anywhere. Configure it under the package → Settings → Trusted publishing.
+npm token is stored anywhere. Configure it for **each of the seven packages** under the package →
+Settings → Trusted publishing.
 
-Trusted publishing only works for a package that already exists. If the package is ever recreated,
-publish its first version with a short-lived granular token stored as the `NPM_TOKEN` secret and
-passed to the publish step as `NODE_AUTH_TOKEN`, then switch back and delete the token.
+Trusted publishing only works for a package that already exists, so before the first release that
+ships them, create the six platform packages from your own npm account: for each name, publish a
+placeholder `0.0.0` from an empty directory whose `package.json` holds just that `name` and
+`"version": "0.0.0"` (`npm publish --access public`), then add the trusted publisher. The main
+package pins exact versions, so nobody installs a placeholder. Do the same if a package is ever
+recreated.
 
-Check a staged package locally with `vp run npm:stage` and `vp run npm:smoke`.
+Check the packages locally with `vp run npm:stage` (main package plus this machine's platform
+package; `--target <rust triple>` stages another one if its Rust target is installed) and
+`vp run npm:smoke`, which installs the tarballs as npx would and runs them.
 
 ### Homebrew tap
 

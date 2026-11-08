@@ -16,7 +16,7 @@
     "desktop:tauri": "vp run --filter @fme/desktop-tauri start",
     "desktop:tauri:dev": "vp run --filter @fme/desktop-tauri dev",
     "desktop:tauri:dist": "vp run --filter @fme/desktop-tauri dist",
-    "npm:stage": "vp run build && node apps/server/scripts/stage-npm.ts",
+    "npm:stage": "vp run --filter @fme/web build && node apps/server/scripts/stage-npm.ts",
     "npm:smoke": "node apps/server/scripts/smoke-npm.ts",
     "typecheck": "vp run -r typecheck",
     "test": "vp run -r test",

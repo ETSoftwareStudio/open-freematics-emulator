@@ -42,8 +42,9 @@ the way a real OBD-II reader would, and flags any value that doesn't match.
 - **macOS:** `brew install --cask etsoftwarestudio/tap/open-freematics-emulator`
 - **macOS, Windows, Linux:** installers on the
   [Releases page](https://github.com/ETSoftwareStudio/open-freematics-emulator/releases)
-- **Any OS with Node.js 24:** `npx open-freematics-emulator` starts the app and opens it in your
-  browser
+- **macOS, Windows, Linux (x64 or arm64) with Node.js 20 or later:** `npx open-freematics-emulator`
+  starts the app and opens it in your browser. Linux needs glibc and `libudev1`, which desktop
+  distros ship.
 
 The macOS app is signed and notarized. The Windows installer isn't code-signed yet, so Windows
 warns the first time you run it: click **More info → Run anyway**.
@@ -188,8 +189,8 @@ docs/internals      Conventions for contributors and agents (start from AGENTS.m
 | `vp run test`        | Runs every package's tests                          |
 | `vp run typecheck`   | Type-checks every package                           |
 | `vp run check`       | Format check, lint, typecheck and tests             |
-| `vp run npm:stage`   | Stages the npx package in `apps/server/.stage/npm`  |
-| `vp run npm:smoke`   | Installs and runs the staged package as npx would   |
+| `vp run npm:stage`   | Stages the npx packages in `apps/server/.stage/npm` |
+| `vp run npm:smoke`   | Installs and runs the staged packages as npx would  |
 
 Releases: see [RELEASING.md](RELEASING.md).
 
