@@ -226,57 +226,67 @@ const make = Effect.gen(function* () {
     };
   });
 
-  const connect = Effect.fn("EmulatorSession.connect")(function* (target: ConnectTarget) {
-    yield* Effect.annotateCurrentSpan("target", target._tag);
-    yield* closeActive;
-    yield* update((s) => ({ ...s, connection: { _tag: "connecting", target } }));
+  const connect = Effect.fn("EmulatorSession.connect")(
+    function* (target: ConnectTarget) {
+      yield* Effect.annotateCurrentSpan("target", target._tag);
+      yield* closeActive;
+      yield* update((s) => ({ ...s, connection: { _tag: "connecting", target } }));
 
-    const id = yield* Ref.updateAndGet(connectionIds, (n) => n + 1);
-    const scope = yield* Scope.make();
-    const attempt = Effect.gen(function* () {
-      const link = yield* openLink(target, scope);
-      const client = yield* AtClient.make(link, {
-        onTraffic: recordTraffic,
-        onLinkLost: () => onLinkLost(id),
-      }).pipe(Scope.provide(scope));
+      const id = yield* Ref.updateAndGet(connectionIds, (n) => n + 1);
+      const scope = yield* Scope.make();
+      const attempt = Effect.gen(function* () {
+        const link = yield* openLink(target, scope);
+        const client = yield* AtClient.make(link, {
+          onTraffic: recordTraffic,
+          onLinkLost: () => onLinkLost(id),
+        }).pipe(Scope.provide(scope));
 
-      // ATZ gives us the firmware banner and a clean slate; older firmware may stay silent.
-      const resetLines = yield* client.reset.pipe(Effect.orElseSucceed(() => []));
-      yield* client.command(AT.echo(false)).pipe(Effect.ignore);
-      yield* client.command(AT.debugOutput(false)).pipe(
-        Effect.retry({ times: 2, schedule: Schedule.spaced("200 millis") }),
-        Effect.mapError(() => new EmulatorConnectError({ target, reason: "no-handshake" })),
-      );
-      const desired = yield* SubscriptionRef.get(state);
-      const pushed = yield* probeDtcModes(client).pipe(
-        Effect.flatMap((dtcModes) => pushState(client, desired, dtcModes)),
-        Effect.mapError(() => new EmulatorConnectError({ target, reason: "setup-failed" })),
-      );
-      yield* Ref.set(active, Option.some({ id, client, scope }));
-      yield* update((s) => ({
-        ...pushed.state,
-        pids: { ...s.pids, ...pushed.state.pids },
-        connection: {
-          _tag: "connected",
-          target,
-          device: parseDeviceInfo(resetLines),
-          unsent: pushed.unsent,
-        },
-      }));
-    });
+        // ATZ gives us the firmware banner and a clean slate; older firmware may stay silent.
+        const resetLines = yield* client.reset.pipe(Effect.orElseSucceed(() => []));
+        yield* client.command(AT.echo(false)).pipe(Effect.ignore);
+        yield* client.command(AT.debugOutput(false)).pipe(
+          Effect.retry({ times: 2, schedule: Schedule.spaced("200 millis") }),
+          Effect.mapError(() => new EmulatorConnectError({ target, reason: "no-handshake" })),
+        );
+        const desired = yield* SubscriptionRef.get(state);
+        const pushed = yield* probeDtcModes(client).pipe(
+          Effect.flatMap((dtcModes) => pushState(client, desired, dtcModes)),
+          Effect.mapError(() => new EmulatorConnectError({ target, reason: "setup-failed" })),
+        );
+        yield* Ref.set(active, Option.some({ id, client, scope }));
+        yield* update((s) => ({
+          ...pushed.state,
+          pids: { ...s.pids, ...pushed.state.pids },
+          connection: {
+            _tag: "connected",
+            target,
+            device: parseDeviceInfo(resetLines),
+            unsent: pushed.unsent,
+          },
+        }));
+      });
 
-    yield* attempt.pipe(
-      Effect.tapError((error) =>
-        Effect.andThen(
-          Scope.close(scope, Exit.void),
+      yield* attempt.pipe(
+        Effect.onExit((exit) =>
+          Exit.isSuccess(exit) ? Effect.void : Scope.close(scope, Exit.void),
+        ),
+        Effect.tapError((error) =>
           update((s) => ({
             ...s,
             connection: { _tag: "failed", target, reason: error.message },
           })),
         ),
+      );
+    },
+    // A caller that gives up halfway leaves the old connection closed and no new one.
+    Effect.onInterrupt(() =>
+      Effect.andThen(
+        closeActive,
+        update((s) => ({ ...s, connection: { _tag: "disconnected" } })),
       ),
-    );
-  }, locked);
+    ),
+    locked,
+  );
 
   const disconnect = Effect.gen(function* () {
     yield* closeActive;

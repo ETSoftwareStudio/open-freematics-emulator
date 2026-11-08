@@ -118,6 +118,8 @@ const summarize = <A, E>(exit: Exit.Exit<A, E>): unknown => {
 
 interface StalledAdapter {
   readonly port: number;
+  /** Resolves once the adapter receives its next `ATZ`. */
+  readonly nextReset: () => Promise<void>;
   readonly close: () => void;
 }
 
@@ -125,12 +127,16 @@ interface StalledAdapter {
 const startStalledAdapter = () =>
   new Promise<StalledAdapter>((resolve, reject) => {
     const sockets = new Set<NodeNet.Socket>();
+    let resetWaiters: Array<() => void> = [];
     const server = NodeNet.createServer((socket) => {
       sockets.add(socket);
       socket.on("close", () => sockets.delete(socket));
       socket.on("error", () => sockets.delete(socket));
       socket.on("data", (data) => {
-        if (data.toString("latin1").includes("ATZ")) socket.write("ELM327 v1.5\r");
+        if (!data.toString("latin1").includes("ATZ")) return;
+        socket.write("ELM327 v1.5\r");
+        for (const waiter of resetWaiters) waiter();
+        resetWaiters = [];
       });
     });
     server.once("error", reject);
@@ -138,6 +144,7 @@ const startStalledAdapter = () =>
       const address = server.address() as NodeNet.AddressInfo;
       resolve({
         port: address.port,
+        nextReset: () => new Promise((reset) => resetWaiters.push(reset)),
         close: () => {
           for (const socket of sockets) socket.destroy();
           server.close();
@@ -620,16 +627,40 @@ const drive = Effect.fn("Conformance.drive")(function* (baseUrl: string, dataDir
     "reader connect to an adapter that never finishes its reply",
     client(WS_METHODS.readerConnect, { target: stalledTarget }),
   );
-  yield* record(
-    "reader traffic of the unfinished reply",
+  /** The reader's traffic after `sequence`, through the adapter's unfinished banner. */
+  const unfinishedReply = (sequence: number) =>
     client(WS_METHODS.subscribeTraffic, undefined).pipe(
-      Stream.filter((entry) => entry.channel === "reader"),
+      Stream.filter((entry) => entry.channel === "reader" && entry.sequence > sequence),
       Stream.takeUntil((entry) => entry.direction === "rx" && entry.text === "ELM327 v1.5"),
       Stream.runCollect,
       Effect.map((entries) => entries.slice(-2)),
       Effect.timeoutOption(WAIT),
+    );
+  const unfinished = yield* record("reader traffic of the unfinished reply", unfinishedReply(0));
+  const reset = adapter.nextReset();
+  const abandoned = yield* client(WS_METHODS.readerConnect, { target: stalledTarget }).pipe(
+    Effect.forkChild({ startImmediately: true }),
+  );
+  yield* Effect.promise(() => reset);
+  yield* Fiber.interrupt(abandoned);
+  entries.push({
+    step: "reader connect abandoned halfway",
+    result: summarize(yield* Fiber.await(abandoned)),
+  });
+  yield* record(
+    "reader state after the abandoned connect",
+    waitFor(
+      client(WS_METHODS.readerSubscribeState, undefined),
+      (state: ReaderState) => state.connection._tag !== "connecting",
     ),
   );
+  const lastSequence = Exit.isSuccess(unfinished)
+    ? Option.match(unfinished.value, {
+        onNone: () => 0,
+        onSome: (traffic) => traffic.at(-1)?.sequence ?? 0,
+      })
+    : 0;
+  yield* record("reader traffic of the abandoned connect", unfinishedReply(lastSequence));
 
   yield* record("inspect a valid image", client(WS_METHODS.inspectFirmware, { image: IMAGE }));
   yield* record(

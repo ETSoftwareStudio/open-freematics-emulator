@@ -206,61 +206,71 @@ const make = Effect.gen(function* () {
     yield* Effect.sleep(requests > 0 ? Math.max(0, polling.interval - elapsed) : IDLE_PAUSE);
   });
 
-  const connect = Effect.fn("ObdReader.connect")(function* (target: ReaderTarget) {
-    yield* Effect.annotateCurrentSpan("target", target._tag);
-    yield* closeActive;
-    yield* update((s) => ({
-      ...initialState,
-      watching: s.watching,
-      polling: s.polling,
-      connection: { _tag: "connecting", target },
-    }));
-    const id = yield* Ref.updateAndGet(connectionIds, (n) => n + 1);
-    const scope = yield* Scope.make();
-
-    const attempt = Effect.gen(function* () {
-      const link = yield* openLink(target, scope);
-      const client = yield* ElmClient.make(link, {
-        onTraffic: (direction, text) => traffic.record("reader", direction, text),
-        onLinkLost: () => onLinkLost(id),
-      }).pipe(Scope.provide(scope));
-
-      const identity = yield* client.request("ATZ").pipe(
-        Effect.map((lines) => lines.find((line) => /ELM|OBD/i.test(line))),
-        Effect.orElseSucceed(() => undefined),
-      );
-      if (identity === undefined) {
-        return yield* new ReaderConnectError({ target, reason: "no-adapter" });
-      }
-      // Echo, line feeds and headers off; automatic protocol search.
-      for (const command of ["ATE0", "ATL0", "ATS1", "ATH0", "ATSP0"]) {
-        yield* client.request(command).pipe(Effect.ignore);
-      }
-      const searched = yield* client
-        .query("0100", { timeout: ElmClient.SEARCH_TIMEOUT })
-        .pipe(Effect.option);
-      const protocol = Option.isSome(searched) ? yield* describeProtocol(client) : null;
-      const voltage = yield* readVoltage(client);
-
-      yield* Ref.set(active, Option.some({ id, client, scope }));
+  const connect = Effect.fn("ObdReader.connect")(
+    function* (target: ReaderTarget) {
+      yield* Effect.annotateCurrentSpan("target", target._tag);
+      yield* closeActive;
       yield* update((s) => ({
-        ...s,
-        vehicleResponding: Option.isSome(searched),
-        voltage,
-        connection: { _tag: "connected", target, adapter: identity, protocol },
+        ...initialState,
+        watching: s.watching,
+        polling: s.polling,
+        connection: { _tag: "connecting", target },
       }));
-      yield* Effect.forever(pollCycle(client)).pipe(Effect.forkIn(scope));
-    });
+      const id = yield* Ref.updateAndGet(connectionIds, (n) => n + 1);
+      const scope = yield* Scope.make();
 
-    yield* attempt.pipe(
-      Effect.tapError((error) =>
-        Effect.andThen(
-          Scope.close(scope, Exit.void),
+      const attempt = Effect.gen(function* () {
+        const link = yield* openLink(target, scope);
+        const client = yield* ElmClient.make(link, {
+          onTraffic: (direction, text) => traffic.record("reader", direction, text),
+          onLinkLost: () => onLinkLost(id),
+        }).pipe(Scope.provide(scope));
+
+        const identity = yield* client.request("ATZ").pipe(
+          Effect.map((lines) => lines.find((line) => /ELM|OBD/i.test(line))),
+          Effect.orElseSucceed(() => undefined),
+        );
+        if (identity === undefined) {
+          return yield* new ReaderConnectError({ target, reason: "no-adapter" });
+        }
+        // Echo, line feeds and headers off; automatic protocol search.
+        for (const command of ["ATE0", "ATL0", "ATS1", "ATH0", "ATSP0"]) {
+          yield* client.request(command).pipe(Effect.ignore);
+        }
+        const searched = yield* client
+          .query("0100", { timeout: ElmClient.SEARCH_TIMEOUT })
+          .pipe(Effect.option);
+        const protocol = Option.isSome(searched) ? yield* describeProtocol(client) : null;
+        const voltage = yield* readVoltage(client);
+
+        yield* Ref.set(active, Option.some({ id, client, scope }));
+        yield* update((s) => ({
+          ...s,
+          vehicleResponding: Option.isSome(searched),
+          voltage,
+          connection: { _tag: "connected", target, adapter: identity, protocol },
+        }));
+        yield* Effect.forever(pollCycle(client)).pipe(Effect.forkIn(scope));
+      });
+
+      yield* attempt.pipe(
+        Effect.onExit((exit) =>
+          Exit.isSuccess(exit) ? Effect.void : Scope.close(scope, Exit.void),
+        ),
+        Effect.tapError((error) =>
           update((s) => ({ ...s, connection: { _tag: "failed", target, reason: error.message } })),
         ),
+      );
+    },
+    // A caller that gives up halfway leaves the old connection closed and no new one.
+    Effect.onInterrupt(() =>
+      Effect.andThen(
+        closeActive,
+        update((s) => ({ ...s, connection: { _tag: "disconnected" } })),
       ),
-    );
-  }, lock.withPermit);
+    ),
+    lock.withPermit,
+  );
 
   const disconnect = Effect.gen(function* () {
     yield* closeActive;

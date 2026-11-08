@@ -172,5 +172,19 @@ describe("ObdReader", () => {
         expect(state).toMatchObject({ dtcs: null, vin: "1HGCD5654VA061985" });
       }),
     );
+
+    it.effect("goes back to disconnected when a connect is abandoned halfway", () =>
+      Effect.gen(function* () {
+        const reader = yield* ObdReader.ObdReader;
+        const connecting = yield* reader.connect({ _tag: "simulated" }).pipe(Effect.forkChild);
+        yield* reader.state.pipe(
+          Stream.filter((s) => s.connection._tag === "connecting"),
+          Stream.runHead,
+        );
+        yield* Fiber.interrupt(connecting);
+        const state = yield* reader.state.pipe(Stream.runHead, Effect.flatMap(Effect.fromOption));
+        expect(state.connection._tag).toBe("disconnected");
+      }),
+    );
   });
 });

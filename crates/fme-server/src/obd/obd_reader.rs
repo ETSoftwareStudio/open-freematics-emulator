@@ -343,6 +343,22 @@ impl Inner {
     }
 }
 
+/// Puts the state back to disconnected when a connect stops halfway because its caller left: by
+/// then the old connection is closed and the new one was never kept.
+struct Abandoned<'a> {
+    inner: &'a Inner,
+    armed: bool,
+}
+
+impl Drop for Abandoned<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.inner
+                .update(|state| state.connection = ReaderConnection::Disconnected);
+        }
+    }
+}
+
 /// Cheap to clone; clones share one reader.
 #[derive(Debug, Clone)]
 pub struct ObdReader {
@@ -379,6 +395,10 @@ impl ObdReader {
     #[tracing::instrument(name = "ObdReader.connect", skip_all, fields(target = target_tag(&target)))]
     pub async fn connect(&self, target: ReaderTarget) -> Result<(), ReaderConnectError> {
         let _permit = self.inner.lock.lock().await;
+        let mut abandoned = Abandoned {
+            inner: &self.inner,
+            armed: true,
+        };
         self.inner.close_active().await;
         self.inner.update(|state| {
             *state = ReaderState {
@@ -392,6 +412,7 @@ impl ObdReader {
         });
         let id = self.inner.connection_ids.fetch_add(1, Ordering::Relaxed) + 1;
         let result = self.attempt(&target, id).await;
+        abandoned.armed = false;
         if let Err(error) = &result {
             let reason = error.to_string();
             self.inner.update(|state| {
@@ -773,6 +794,21 @@ mod tests {
         let state = reader.state().borrow().clone();
         assert_eq!(state.dtcs, None);
         assert_eq!(state.vin.as_deref(), Some("1HGCD5654VA061985"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn goes_back_to_disconnected_when_a_connect_is_abandoned_halfway() {
+        let fixture = connected().await;
+        let reader = &fixture.reader;
+        // The connect's first poll leaves it waiting on the adapter; then the caller gives up.
+        tokio::select! {
+            biased;
+            _ = reader.connect(ReaderTarget::Simulated) => panic!("connected at once"),
+            () = std::future::ready(()) => {}
+        }
+        let state = reader.state().borrow().clone();
+        assert_eq!(state.connection, ReaderConnection::Disconnected);
+        reader.connect(ReaderTarget::Simulated).await.unwrap();
     }
 
     #[test]

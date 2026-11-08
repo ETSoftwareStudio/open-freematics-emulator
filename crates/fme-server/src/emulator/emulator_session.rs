@@ -242,6 +242,22 @@ impl Inner {
     }
 }
 
+/// Puts the state back to disconnected when a connect stops halfway because its caller left: by
+/// then the old connection is closed and the new one was never kept.
+struct Abandoned<'a> {
+    inner: &'a Inner,
+    armed: bool,
+}
+
+impl Drop for Abandoned<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.inner
+                .update(|state| state.connection = Connection::Disconnected);
+        }
+    }
+}
+
 /// Cheap to clone; clones share one session.
 #[derive(Debug, Clone)]
 pub struct EmulatorSession {
@@ -280,6 +296,10 @@ impl EmulatorSession {
     )]
     pub async fn connect(&self, target: ConnectTarget) -> Result<(), EmulatorConnectError> {
         let _permit = self.inner.lock.lock().await;
+        let mut abandoned = Abandoned {
+            inner: &self.inner,
+            armed: true,
+        };
         self.inner.close_active().await;
         self.inner.update(|state| {
             state.connection = Connection::Connecting {
@@ -288,6 +308,7 @@ impl EmulatorSession {
         });
         let id = self.inner.connection_ids.fetch_add(1, Ordering::Relaxed) + 1;
         let result = self.attempt(&target, id).await;
+        abandoned.armed = false;
         if let Err(error) = &result {
             let reason = error.to_string();
             self.inner.update(|state| {
@@ -774,6 +795,27 @@ mod tests {
         assert_eq!(fixture.state().connection, Connection::Disconnected);
         let error = fixture.session.send_raw("ATZ").await.unwrap_err();
         assert!(matches!(error, EmulatorOperationError::NotConnected(_)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn goes_back_to_disconnected_when_a_connect_is_abandoned_halfway() {
+        let fixture = connected().await;
+        let mut state = fixture.session.state();
+        // The connect's first poll leaves it waiting on the device; then the caller gives up.
+        tokio::select! {
+            biased;
+            _ = fixture.session.connect(ConnectTarget::Simulated) => panic!("connected at once"),
+            () = std::future::ready(()) => {}
+        }
+        assert!(matches!(
+            state.borrow_and_update().connection,
+            Connection::Disconnected
+        ));
+        fixture
+            .session
+            .connect(ConnectTarget::Simulated)
+            .await
+            .unwrap();
     }
 
     #[tokio::test(start_paused = true)]

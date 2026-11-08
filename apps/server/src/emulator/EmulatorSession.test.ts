@@ -1,6 +1,7 @@
 import type { DtcCode, EmulatorState, PidId, Preset, PresetId } from "@fme/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as SerialPorts from "../device/SerialPorts.ts";
@@ -118,6 +119,19 @@ describe("EmulatorSession", () => {
         expect((yield* stateOf).connection._tag).toBe("disconnected");
         const error = yield* session.sendRaw("ATZ").pipe(Effect.flip);
         expect(error._tag).toBe("EmulatorNotConnectedError");
+      }),
+    );
+
+    it.effect("goes back to disconnected when a connect is abandoned halfway", () =>
+      Effect.gen(function* () {
+        const session = yield* EmulatorSession.EmulatorSession;
+        const connecting = yield* session.connect({ _tag: "simulated" }).pipe(Effect.forkChild);
+        yield* session.state.pipe(
+          Stream.filter((s) => s.connection._tag === "connecting"),
+          Stream.runHead,
+        );
+        yield* Fiber.interrupt(connecting);
+        expect((yield* stateOf).connection._tag).toBe("disconnected");
       }),
     );
   });
