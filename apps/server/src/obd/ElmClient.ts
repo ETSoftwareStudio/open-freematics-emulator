@@ -44,6 +44,20 @@ export const make = Effect.fn("ElmClient.make")(function* (
   const replies = yield* Queue.unbounded<ReadonlyArray<string>>();
   const lock = yield* Semaphore.make(1);
   let buffer = "";
+  // Replies are logged as they arrive, so one that comes after its request timed out still shows.
+  let logReplies = true;
+
+  const linesOf = (text: string) =>
+    text
+      .split(/[\r\n]+/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+  // Per-line work stays untraced, like the read loop that calls it.
+  const logReply = Effect.fnUntraced(function* (lines: ReadonlyArray<string>) {
+    if (!logReplies) return;
+    for (const line of lines) yield* options.onTraffic("rx", line);
+  });
 
   // Per-chunk work stays untraced; the read loop runs for the life of the connection.
   yield* link.chunks.pipe(
@@ -52,12 +66,9 @@ export const make = Effect.fn("ElmClient.make")(function* (
         buffer += chunk;
         let prompt = buffer.indexOf(">");
         while (prompt !== -1) {
-          const lines = buffer
-            .slice(0, prompt)
-            .split(/[\r\n]+/)
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0);
+          const lines = linesOf(buffer.slice(0, prompt));
           buffer = buffer.slice(prompt + 1);
+          yield* logReply(lines);
           yield* Queue.offer(replies, lines);
           prompt = buffer.indexOf(">");
         }
@@ -81,6 +92,7 @@ export const make = Effect.fn("ElmClient.make")(function* (
           Effect.gen(function* () {
             yield* Queue.clear(replies);
             buffer = "";
+            logReplies = !quiet;
             if (!quiet) yield* options.onTraffic("tx", command);
             yield* link
               .write(`${command}\r`)
@@ -88,10 +100,17 @@ export const make = Effect.fn("ElmClient.make")(function* (
             const lines = yield* Queue.take(replies).pipe(
               Effect.timeoutOrElse({
                 duration: timeout,
-                orElse: () => Effect.fail(new ReaderCommandError({ command, reason: "timeout" })),
+                orElse: () =>
+                  Effect.suspend(() => {
+                    const partial = linesOf(buffer);
+                    buffer = "";
+                    return Effect.andThen(
+                      logReply(partial),
+                      Effect.fail(new ReaderCommandError({ command, reason: "timeout" })),
+                    );
+                  }),
               }),
             );
-            if (!quiet) for (const line of lines) yield* options.onTraffic("rx", line);
             return lines.filter((line) => line.replaceAll(" ", "") !== command.replaceAll(" ", ""));
           }),
         ),

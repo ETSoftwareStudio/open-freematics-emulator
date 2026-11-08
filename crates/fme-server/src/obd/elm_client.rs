@@ -73,6 +73,14 @@ pub struct ElmClient {
     requests: mpsc::UnboundedSender<Message>,
 }
 
+fn lines_of(text: &str) -> Vec<String> {
+    text.split(['\r', '\n'])
+        .map(js::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 fn error(command: &str, reason: ReaderCommandReason) -> ReaderCommandError {
     ReaderCommandError {
         command: command.to_owned(),
@@ -87,6 +95,7 @@ impl ElmClient {
             link,
             buffer: String::new(),
             replies: VecDeque::new(),
+            log_replies: true,
             on_traffic: options.on_traffic,
             on_link_lost: Some(options.on_link_lost),
         };
@@ -131,6 +140,8 @@ struct Actor {
     link: Box<dyn DeviceLink>,
     buffer: String,
     replies: VecDeque<Vec<String>>,
+    // Replies are logged as they arrive, so one that comes after its request timed out still shows.
+    log_replies: bool,
     on_traffic: OnTraffic,
     on_link_lost: Option<OnLinkLost>,
 }
@@ -161,18 +172,22 @@ impl Actor {
             Some(Ok(text)) => {
                 self.buffer.push_str(&text);
                 while let Some(prompt) = self.buffer.find('>') {
-                    let lines = self.buffer[..prompt]
-                        .split(['\r', '\n'])
-                        .map(js::trim)
-                        .filter(|line| !line.is_empty())
-                        .map(str::to_owned)
-                        .collect();
+                    let lines = lines_of(&self.buffer[..prompt]);
                     self.buffer.drain(..=prompt);
+                    self.log_reply(&lines);
                     self.replies.push_back(lines);
                 }
             }
             Some(Err(cause)) => self.lose(Some(cause)),
             None => self.lose(None),
+        }
+    }
+
+    fn log_reply(&self, lines: &[String]) {
+        if self.log_replies {
+            for line in lines {
+                (self.on_traffic)(TrafficDirection::Rx, line);
+            }
         }
     }
 
@@ -195,6 +210,7 @@ impl Actor {
         } = request;
         self.replies.clear();
         self.buffer.clear();
+        self.log_replies = !options.quiet;
         if !options.quiet {
             (self.on_traffic)(TrafficDirection::Tx, &command);
         }
@@ -203,11 +219,6 @@ impl Actor {
             Err(_) => Err(error(&command, ReaderCommandReason::Link)),
         };
         let result = result.map(|lines| {
-            if !options.quiet {
-                for line in &lines {
-                    (self.on_traffic)(TrafficDirection::Rx, line);
-                }
-            }
             let echo = command.replace(' ', "");
             lines
                 .into_iter()
@@ -229,6 +240,9 @@ impl Actor {
             tokio::select! {
                 chunk = self.link.next_chunk(), if !lost => self.receive(chunk),
                 () = tokio::time::sleep_until(deadline) => {
+                    let partial = lines_of(&self.buffer);
+                    self.buffer.clear();
+                    self.log_reply(&partial);
                     return Err(error(command, ReaderCommandReason::Timeout));
                 }
             }
@@ -238,6 +252,8 @@ impl Actor {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
     use crate::device::device_link::scripted::scripted;
 
@@ -256,5 +272,36 @@ mod tests {
         assert_eq!(first.unwrap_err().reason, ReaderCommandReason::Timeout);
         let second = client.request("ATRV", RequestOptions::default()).await;
         assert_eq!(second.unwrap(), ["12.6V"]);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn logs_a_reply_that_timed_out_as_it_arrives_but_never_a_quiet_one() {
+        let (link, script) = scripted(&[Some("SEARCHING..."), Some("12.6V\r\r>")]);
+        let traffic = Arc::new(Mutex::new(Vec::new()));
+        let options = ElmClientOptions {
+            on_traffic: Box::new({
+                let traffic = Arc::clone(&traffic);
+                move |direction, text| {
+                    let direction = match direction {
+                        TrafficDirection::Tx => "tx",
+                        TrafficDirection::Rx => "rx",
+                    };
+                    traffic.lock().unwrap().push(format!("{direction} {text}"));
+                }
+            }),
+            ..quiet()
+        };
+        let client = ElmClient::spawn(link, options);
+        let first = client.request("0100", RequestOptions::default()).await;
+        assert_eq!(first.unwrap_err().reason, ReaderCommandReason::Timeout);
+        script
+            .incoming
+            .send("\rUNABLE TO CONNECT\r\r>".to_owned())
+            .unwrap();
+        let second = client.request("ATRV", RequestOptions::QUIET).await;
+        assert_eq!(second.unwrap(), ["12.6V"]);
+        assert_eq!(
+            *traffic.lock().unwrap(),
+            ["tx 0100", "rx SEARCHING...", "rx UNABLE TO CONNECT"]
+        );
     }
 }

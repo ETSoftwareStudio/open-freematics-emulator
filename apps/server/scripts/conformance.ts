@@ -11,6 +11,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeHttp from "node:http";
+import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
@@ -74,10 +75,11 @@ const IMAGE = hexFile(APPLICATION_BASE, APPLICATION);
  * the measured poll rate, random user preset ids (numbered by first appearance), and the
  * server's own temp data dir.
  */
-const makeNormalizer = (dataDir: string) => {
+const makeNormalizer = (dataDir: string, adapterPort: number) => {
   const presetIds = new Map<string, string>();
   const normalize = (value: unknown, key?: string): unknown => {
     if ((key === "at" || key === "dtcsAt") && typeof value === "number") return "<time>";
+    if (key === "port" && value === adapterPort) return "<adapter-port>";
     if (key === "pollRate" && typeof value === "number") return value > 0 ? "<rate>" : 0;
     if (typeof value === "string") {
       if (/^user:[0-9a-f-]{36}$/.test(value)) {
@@ -113,6 +115,36 @@ const summarize = <A, E>(exit: Exit.Exit<A, E>): unknown => {
     defect: defect instanceof Error ? { name: defect.name, message: defect.message } : defect,
   };
 };
+
+interface StalledAdapter {
+  readonly port: number;
+  readonly close: () => void;
+}
+
+/** An OBD-II adapter on a local TCP port that starts its reset banner and never finishes it. */
+const startStalledAdapter = () =>
+  new Promise<StalledAdapter>((resolve, reject) => {
+    const sockets = new Set<NodeNet.Socket>();
+    const server = NodeNet.createServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      socket.on("error", () => sockets.delete(socket));
+      socket.on("data", (data) => {
+        if (data.toString("latin1").includes("ATZ")) socket.write("ELM327 v1.5\r");
+      });
+    });
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address() as NodeNet.AddressInfo;
+      resolve({
+        port: address.port,
+        close: () => {
+          for (const socket of sockets) socket.destroy();
+          server.close();
+        },
+      });
+    });
+  });
 
 const httpRequest = (url: string, headers: Record<string, string> = {}, method = "GET") =>
   new Promise<{ status: number; type: string | undefined; body: string }>((resolve, reject) => {
@@ -580,6 +612,25 @@ const drive = Effect.fn("Conformance.drive")(function* (baseUrl: string, dataDir
   yield* record("reader disconnect", client(WS_METHODS.readerDisconnect, undefined));
   yield* record("reader state after disconnecting", readerState());
 
+  const adapter = yield* Effect.acquireRelease(Effect.promise(startStalledAdapter), (stalled) =>
+    Effect.sync(stalled.close),
+  );
+  const stalledTarget = { _tag: "tcp", host: "127.0.0.1", port: adapter.port } as const;
+  yield* record(
+    "reader connect to an adapter that never finishes its reply",
+    client(WS_METHODS.readerConnect, { target: stalledTarget }),
+  );
+  yield* record(
+    "reader traffic of the unfinished reply",
+    client(WS_METHODS.subscribeTraffic, undefined).pipe(
+      Stream.filter((entry) => entry.channel === "reader"),
+      Stream.takeUntil((entry) => entry.direction === "rx" && entry.text === "ELM327 v1.5"),
+      Stream.runCollect,
+      Effect.map((entries) => entries.slice(-2)),
+      Effect.timeoutOption(WAIT),
+    ),
+  );
+
   yield* record("inspect a valid image", client(WS_METHODS.inspectFirmware, { image: IMAGE }));
   yield* record(
     "inspect text that isn't HEX",
@@ -666,7 +717,7 @@ const drive = Effect.fn("Conformance.drive")(function* (baseUrl: string, dataDir
   yield* record("emulator state after disconnecting", emulatorState());
   yield* record("presets on disk", Effect.succeed(readPresetFile(dataDir)));
 
-  const normalize = makeNormalizer(dataDir);
+  const normalize = makeNormalizer(dataDir, adapter.port);
   const wsUrl = `${baseUrl.replace(/^http/, "ws")}/ws`;
   const raw = yield* Effect.promise(() => rawProtocolChecks(wsUrl));
   const http = yield* Effect.promise(() => httpChecks(baseUrl));
