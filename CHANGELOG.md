@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/ETSoftwareStudio/open-freematics-emulator/compare/v1.0.1...v1.0.2) (2026-11-08)
+
+
+### Bug Fixes
+
+* **desktop:** keep saved UI state across launches ([#2](https://github.com/ETSoftwareStudio/open-freematics-emulator/issues/2)) ([6646b60](https://github.com/ETSoftwareStudio/open-freematics-emulator/commit/6646b6049118f6e25bca43f2b15d7ae18f321e66))
+
 ## [1.0.1](https://github.com/ETSoftwareStudio/open-freematics-emulator/compare/v1.0.0...v1.0.1) (2026-11-06)
 
 No app changes. The npm package is now published with npm trusted publishing, so it carries
