@@ -12,6 +12,8 @@ aes.workspace = true
 fme-core.workspace = true
 getrandom.workspace = true
 indexmap.workspace = true
+lzma-rust2.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serialport.workspace = true
@@ -25,6 +27,7 @@ uuid.workspace = true
 nix.workspace = true
 
 [dev-dependencies]
+lzma-rust2 = { workspace = true, features = ["encoder"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
