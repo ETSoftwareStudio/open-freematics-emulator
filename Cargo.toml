@@ -9,12 +9,17 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
+aes = "0.8"
 fme-core = { path = "crates/fme-core" }
 indexmap = { version = "2", features = ["serde"] }
+nix = { version = "0.30", features = ["fs", "term"] }
+serialport = "4"
 serde = { version = "1", features = ["derive"] }
 # JavaScript objects keep insertion order, and so must JSON values crossing the wire.
 serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tracing = "0.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
