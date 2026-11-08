@@ -10,12 +10,15 @@ publish = false
 
 [workspace.dependencies]
 aes = "0.8"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "ws"] }
 fme-core = { path = "crates/fme-core" }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 getrandom = "0.4"
 indexmap = { version = "2", features = ["serde"] }
 # LZMA from the sevenz-rust2 project; the vendor package is an NSIS installer, not a .7z archive.
 lzma-rust2 = { version = "0.25", default-features = false, features = ["std", "optimization"] }
 nix = { version = "0.30", features = ["fs", "term"] }
+percent-encoding = "2"
 # Only the pinned vendor URL is fetched; rustls with the platform's roots, no proxies or HTTP/2.
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 serialport = "4"
@@ -26,7 +29,14 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-tungstenite = "0.29"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+  "ansi",
+  "fmt",
+  "std",
+] }
+url = "2"
 uuid = { version = "1", features = ["v4"] }
 
 [workspace.lints.rust]

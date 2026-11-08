@@ -80,6 +80,13 @@ impl TrafficStream {
             None => self.live.recv().await,
         }
     }
+
+    /// The next entry if one is ready, without waiting.
+    pub fn try_next(&mut self) -> Option<TrafficEntry> {
+        self.history
+            .pop_front()
+            .or_else(|| self.live.try_recv().ok())
+    }
 }
 
 #[cfg(test)]

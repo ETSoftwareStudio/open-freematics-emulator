@@ -9,18 +9,23 @@ publish.workspace = true
 
 [dependencies]
 aes.workspace = true
+axum.workspace = true
 fme-core.workspace = true
+futures-util.workspace = true
 getrandom.workspace = true
 indexmap.workspace = true
 lzma-rust2.workspace = true
+percent-encoding.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serialport.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
 tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
 uuid.workspace = true
 
 [target.'cfg(unix)'.dependencies]
@@ -30,6 +35,7 @@ nix.workspace = true
 lzma-rust2 = { workspace = true, features = ["encoder"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+tokio-tungstenite.workspace = true
 
 [lints]
 workspace = true
