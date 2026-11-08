@@ -67,7 +67,7 @@ pub struct FirmwareImageSummary {
 }
 
 /// A firmware file name as stored in the local library, e.g. "Firmware_MK2_20250311.hex".
-fn is_library_image_name(name: &str) -> bool {
+pub fn is_library_image_name(name: &str) -> bool {
     let Some(stem) = name
         .len()
         .checked_sub(4)

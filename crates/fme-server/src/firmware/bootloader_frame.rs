@@ -3,6 +3,7 @@
 
 use aes::Aes128;
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit, generic_array::GenericArray};
+use sha2::{Digest, Sha256};
 
 pub mod command {
     pub const READ_CHIP_ID: u8 = 0x00;
@@ -20,6 +21,29 @@ pub mod command {
     pub const ERROR: u8 = 0x10;
     pub const ACK: u8 = 0x20;
 }
+
+/// The name the traffic log shows for a command, as the TypeScript server spells it.
+pub const fn command_name(code: u8) -> Option<&'static str> {
+    Some(match code {
+        command::READ_CHIP_ID => "readChipId",
+        command::WRITE_CRC => "writeCrc",
+        command::READ_SERIAL => "readSerial",
+        command::READ_CHECK => "readCheck",
+        command::READ_VERSION => "readVersion",
+        command::READ_BOOT_INFO => "readBootInfo",
+        command::ERASE => "erase",
+        command::WRITE => "write",
+        command::WRITE_DONE => "writeDone",
+        command::RUN => "run",
+        command::READ_APP_INFO => "readAppInfo",
+        command::ERROR => "error",
+        command::ACK => "ack",
+        _ => return None,
+    })
+}
+
+/// The unencrypted probe the updater sends before reopening the port.
+pub const PROBE_FRAME: [u8; 5] = [0xbb, 0xfe, 0xfe, 0xee, 0x0d];
 
 pub const WIRE_KEY_LENGTH: usize = 16;
 pub type WireKey = [u8; WIRE_KEY_LENGTH];
@@ -131,8 +155,19 @@ fn decrypt(wire_key: &WireKey, data: &mut [u8]) {
     }
 }
 
-/// `BB stuff(command, AES(length_be16, payload, padding), checksum) EE`. The vendor's padding is
-/// uninitialized stack memory; the caller supplies it.
+/// Random padding for a payload of this length. The vendor's padding is uninitialized stack
+/// memory, so any bytes are accepted; zeros stand in if the system has no randomness to give.
+pub fn random_padding(payload_length: usize) -> Vec<u8> {
+    let mut padding = vec![0; padding_length(payload_length)];
+    if getrandom::fill(&mut padding).is_err() {
+        tracing::debug!("no randomness for bootloader padding; using zeros");
+        padding.fill(0);
+    }
+    padding
+}
+
+/// `BB stuff(command, AES(length_be16, payload, padding), checksum) EE`, with the caller's
+/// padding (see [`random_padding`]).
 pub fn encode_command_frame(
     command: u8,
     payload: &[u8],
@@ -213,8 +248,51 @@ pub fn decode_command_frame(
     })
 }
 
+fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// SHA-256 of a wire key, so a key can be recognized without the key itself in the source.
+pub fn wire_key_fingerprint(wire_key: &[u8]) -> String {
+    to_hex(&Sha256::digest(wire_key))
+}
+
+/// SHA-256 of the MK2 bootloader's wire key. The key itself is never in the source; this hash both
+/// recognizes a supplied key and lets [`find_wire_key`] recover the key from the vendor tool.
+pub const VENDOR_WIRE_KEY_SHA256: &str =
+    "2d892f5f5ff0f613b75d1feea642910b064e7f35a5e616264dc039c90a082243";
+
+/// Windows hashed between yields, so a multi-megabyte scan never holds a worker for long.
+pub const WIRE_KEY_SCAN_SLICE: usize = 1 << 15;
+
+/// Scans a buffer for the 16-byte window whose SHA-256 matches `sha256`, returning a copy of it.
+/// Finding it by hash (not a fixed offset) is self-verifying and survives vendor-version layout
+/// shifts; the match is proof the right bytes were found. Dropping the future stops the scan
+/// between slices.
+#[tracing::instrument(name = "findWireKey", skip_all, fields(bytes = data.len()))]
+pub async fn find_wire_key(data: &[u8], sha256: &str) -> Option<WireKey> {
+    let windows = (data.len() + 1).saturating_sub(WIRE_KEY_LENGTH);
+    let mut start = 0;
+    while start < windows {
+        if start > 0 {
+            tokio::task::yield_now().await;
+        }
+        let end = windows.min(start + WIRE_KEY_SCAN_SLICE);
+        let found = (start..end)
+            .map(|i| &data[i..i + WIRE_KEY_LENGTH])
+            .find(|window| to_hex(&Sha256::digest(window)) == sha256);
+        if let Some(window) = found {
+            return window.try_into().ok();
+        }
+        start = end;
+    }
+    None
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
 
     /// The FIPS-197 example key, standing in for the wire key the user supplies.
@@ -225,6 +303,18 @@ pub(crate) mod tests {
             .step_by(2)
             .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
             .collect()
+    }
+
+    /// Polls a future once, for tests that start work and then let it go: `None` while it runs.
+    pub(crate) async fn started<F: std::future::Future>(work: F) -> Option<F::Output> {
+        let mut work = std::pin::pin!(work);
+        std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(match work.as_mut().poll(cx) {
+                std::task::Poll::Ready(value) => Some(value),
+                std::task::Poll::Pending => None,
+            })
+        })
+        .await
     }
 
     pub(crate) fn hex(data: &[u8]) -> String {
@@ -287,6 +377,20 @@ pub(crate) mod tests {
                 .len(),
             10
         );
+        let random = encode_command_frame(
+            command::RUN,
+            &bytes("08003800"),
+            &TEST_KEY,
+            &random_padding(4),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_command_frame(&random, &TEST_KEY)
+                .unwrap()
+                .padding
+                .len(),
+            10
+        );
         let wrong = encode_command_frame(command::RUN, &bytes("08003800"), &TEST_KEY, &[7; 9]);
         assert_eq!(wrong.unwrap_err().reason, FrameErrorReason::Length);
     }
@@ -333,5 +437,70 @@ pub(crate) mod tests {
     fn rejects_a_command_whose_ciphertext_is_not_whole_blocks() {
         let result = decode_command_frame(&bytes("bb070102030dee"), &TEST_KEY);
         assert_eq!(result.unwrap_err().reason, FrameErrorReason::Length);
+    }
+
+    mod find_wire_key {
+        use super::*;
+
+        // A stand-in key planted in surrounding bytes; the scan is verified by its hash, so the
+        // real vendor key never has to be in the source to prove the mechanism.
+        fn planted() -> Vec<u8> {
+            (0..16u32).map(|i| ((i * 37 + 11) & 0xff) as u8).collect()
+        }
+
+        fn noise(n: usize, seed: usize) -> Vec<u8> {
+            (0..n).map(|i| ((i * 131 + seed) & 0xff) as u8).collect()
+        }
+
+        fn buffer() -> Vec<u8> {
+            [noise(500, 3), planted(), noise(700, 9)].concat()
+        }
+
+        #[tokio::test]
+        async fn recovers_the_window_whose_hash_matches_byte_for_byte() {
+            let fingerprint = wire_key_fingerprint(&planted());
+            let found = find_wire_key(&buffer(), &fingerprint).await;
+            assert_eq!(found.map(|key| hex(&key)), Some(hex(&planted())));
+        }
+
+        #[tokio::test]
+        async fn returns_none_when_no_window_matches() {
+            let fingerprint = wire_key_fingerprint(&planted());
+            assert_eq!(find_wire_key(&noise(1000, 1), &fingerprint).await, None);
+        }
+
+        #[tokio::test]
+        async fn returns_none_for_a_buffer_shorter_than_the_key() {
+            let fingerprint = wire_key_fingerprint(&planted());
+            assert_eq!(find_wire_key(&planted()[..15], &fingerprint).await, None);
+        }
+
+        fn large() -> Arc<Vec<u8>> {
+            Arc::new(noise(2 * WIRE_KEY_SCAN_SLICE + 16, 5))
+        }
+
+        #[tokio::test]
+        async fn lets_other_work_run_between_slices_of_a_long_scan() {
+            let fingerprint = wire_key_fingerprint(&planted());
+            let order = Arc::new(Mutex::new(Vec::new()));
+            let (data, log) = (large(), Arc::clone(&order));
+            let scan = tokio::spawn(async move {
+                let found = find_wire_key(&data, &fingerprint).await;
+                log.lock().unwrap().push("scan done");
+                found
+            });
+            let log = Arc::clone(&order);
+            let other = tokio::spawn(async move { log.lock().unwrap().push("other work") });
+            assert_eq!(scan.await.unwrap(), None);
+            other.await.unwrap();
+            assert_eq!(*order.lock().unwrap(), ["other work", "scan done"]);
+        }
+
+        #[tokio::test]
+        async fn can_be_dropped_mid_scan() {
+            let fingerprint = wire_key_fingerprint(&planted());
+            let data = large();
+            assert_eq!(started(find_wire_key(&data, &fingerprint)).await, None);
+        }
     }
 }

@@ -11,9 +11,11 @@ publish = false
 [workspace.dependencies]
 aes = "0.8"
 fme-core = { path = "crates/fme-core" }
+getrandom = "0.4"
 indexmap = { version = "2", features = ["serde"] }
 nix = { version = "0.30", features = ["fs", "term"] }
 serialport = "4"
+sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 # JavaScript objects keep insertion order, and so must JSON values crossing the wire.
 serde_json = { version = "1", features = ["preserve_order"] }
