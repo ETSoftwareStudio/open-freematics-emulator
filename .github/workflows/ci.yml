@@ -26,6 +26,8 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Install the serial port library the Rust server links
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec vp run check
 
