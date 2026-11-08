@@ -2,6 +2,11 @@
 
 # Open Freematics Emulator
 
+[![Release](https://img.shields.io/github/v/release/ETSoftwareStudio/open-freematics-emulator)](https://github.com/ETSoftwareStudio/open-freematics-emulator/releases/latest)
+[![npm](https://img.shields.io/npm/v/open-freematics-emulator)](https://www.npmjs.com/package/open-freematics-emulator)
+[![CI](https://github.com/ETSoftwareStudio/open-freematics-emulator/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ETSoftwareStudio/open-freematics-emulator/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/ETSoftwareStudio/open-freematics-emulator)](LICENSE)
+
 A modern control app for the [Freematics OBD-II Emulator MK2](https://freematics.com/products/freematics-obd-emulator-mk2/).
 It replaces the Windows-only GUI with a local server that owns the USB serial link and a web UI
 that drives it, on macOS, Linux and Windows.

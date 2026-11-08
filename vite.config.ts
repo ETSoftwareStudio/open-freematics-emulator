@@ -7,7 +7,8 @@ export default defineConfig({
   },
   fmt: {
     printWidth: 100,
-    ignorePatterns: [".repos/**", "**/dist/**", "pnpm-lock.yaml", "patches/**"],
+    // release-please writes CHANGELOG.md in its own style on every release PR.
+    ignorePatterns: [".repos/**", "**/dist/**", "pnpm-lock.yaml", "patches/**", "CHANGELOG.md"],
   },
   lint: {
     ignorePatterns: [".repos/**", "**/dist/**", "node_modules", "**/routeTree.gen.ts"],
