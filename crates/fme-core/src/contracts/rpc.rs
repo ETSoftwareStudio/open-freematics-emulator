@@ -129,3 +129,18 @@ pub enum DownloadVendorFirmwareError {
     #[error(transparent)]
     Import(#[from] VendorImportError),
 }
+
+effect_rpc::typed_errors!(
+    super::emulator::SerialPortListError,
+    super::emulator::EmulatorConnectError,
+    EmulatorOperationError,
+    super::reader::ReaderConnectError,
+    super::reader::ReaderOperationError,
+    ApplyPresetError,
+    super::presets::PresetChangeError,
+    FirmwareImageError,
+    UpdateFirmwareError,
+    VendorImportError,
+    DownloadVendorFirmwareError,
+    super::firmware::WireKeyError,
+);

@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 aes.workspace = true
 axum.workspace = true
+effect-rpc = { workspace = true, features = ["axum"] }
 fme-core.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
@@ -35,7 +36,6 @@ nix.workspace = true
 lzma-rust2 = { workspace = true, features = ["encoder"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
-tokio-tungstenite.workspace = true
 
 [lints]
 workspace = true

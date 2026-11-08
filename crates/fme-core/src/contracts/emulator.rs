@@ -1,9 +1,9 @@
+use effect_rpc::{schema, string_enum, tagged_struct};
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::base_schemas::{CalibrationId, DtcCode, PidId, Vin};
 use super::presets::PresetRef;
-use crate::json;
 
 string_enum! {
     pub enum ObdProtocol {
@@ -34,7 +34,7 @@ pub const MAX_DTCS_PER_MODE: usize = 6;
 pub type DtcList = Vec<DtcCode>;
 
 fn dtc_list<'de, D: Deserializer<'de>>(deserializer: D) -> Result<DtcList, D::Error> {
-    json::checked(deserializer, "DtcList", |codes: &DtcList| {
+    schema::checked(deserializer, "DtcList", |codes: &DtcList| {
         codes.len() <= MAX_DTCS_PER_MODE
     })
 }
@@ -65,7 +65,7 @@ pub struct ReadinessMonitor {
 #[serde(tag = "_tag", rename_all = "camelCase")]
 pub enum ConnectTarget {
     Serial {
-        #[serde(deserialize_with = "json::non_empty_string")]
+        #[serde(deserialize_with = "schema::non_empty_string")]
         path: String,
     },
     Simulated,
@@ -245,7 +245,7 @@ pub struct EmulatorState {
     pub vin: Option<String>,
     pub calibration_id: Option<String>,
     pub dtcs: Dtcs,
-    #[serde(with = "json::number_record")]
+    #[serde(with = "schema::number_record")]
     pub pids: IndexMap<PidId, f64>,
     pub readiness: Readiness,
     /// Kept when PIDs are edited afterwards; compare against the preset to show the edits.
@@ -279,7 +279,7 @@ pub struct TrafficEntry {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetPidInput {
     pub pid: PidId,
-    #[serde(with = "json::finite")]
+    #[serde(with = "schema::finite")]
     pub value: f64,
 }
 
@@ -309,7 +309,7 @@ pub struct SetCalibrationIdInput {
 }
 
 fn raw_command<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    json::checked(deserializer, "SendRawInput.command", |command: &String| {
+    schema::checked(deserializer, "SendRawInput.command", |command: &String| {
         command.len() >= 2
             && command[..2].eq_ignore_ascii_case("AT")
             && command.bytes().all(|b| (0x20..=0x7e).contains(&b))

@@ -2,21 +2,19 @@
 
 use std::sync::Arc;
 
+use effect_rpc::{Cause, Handlers, RpcError, changes};
 use fme_core::contracts::emulator::{
-    EmulatorConnectError, EmulatorOperationError, ReadinessMonitor, SendRawInput, SendRawResult,
-    SerialPortListError, SetCalibrationIdInput, SetDtcsInput, SetPidInput, SetReadinessInput,
-    SetVinInput,
+    EmulatorOperationError, ReadinessMonitor, SendRawInput, SendRawResult, SetCalibrationIdInput,
+    SetDtcsInput, SetPidInput, SetReadinessInput, SetVinInput,
 };
 use fme_core::contracts::firmware::{
-    FirmwareImageError, FirmwareUpdateInput, ImportVendorFilesInput, InspectFirmwareInput,
-    VendorImportError, WireKeyError,
+    FirmwareUpdateInput, ImportVendorFilesInput, InspectFirmwareInput,
 };
-use fme_core::contracts::presets::{PresetChangeError, SavePresetInput};
-use fme_core::contracts::reader::{PollingSettings, ReaderConnectError, ReaderOperationError};
+use fme_core::contracts::presets::SavePresetInput;
+use fme_core::contracts::reader::PollingSettings;
 use fme_core::contracts::rpc::{
-    ApplyPresetError, ClearDtcsPayload, ConnectPayload, DownloadVendorFirmwareError,
-    PresetIdPayload, ReaderConnectPayload, ReaderWatchPayload, SetIgnitionPayload,
-    SetProtocolPayload, SetVinEnabledPayload, UpdateFirmwareError, ws_methods as m,
+    ClearDtcsPayload, ConnectPayload, PresetIdPayload, ReaderConnectPayload, ReaderWatchPayload,
+    SetIgnitionPayload, SetProtocolPayload, SetVinEnabledPayload, ws_methods as m,
 };
 use futures_util::stream;
 use serde_json::Value;
@@ -26,23 +24,7 @@ use crate::firmware::FirmwareServices;
 use crate::firmware::firmware_updater::UpdateError;
 use crate::obd::obd_reader::ObdReader;
 use crate::presets::preset_store::PresetStore;
-use crate::rpc::{Cause, RpcError, RpcHandlers, changes};
 use crate::traffic::traffic_log::TrafficLog;
-
-crate::typed_rpc_errors!(
-    SerialPortListError,
-    EmulatorConnectError,
-    EmulatorOperationError,
-    ReaderConnectError,
-    ReaderOperationError,
-    ApplyPresetError,
-    PresetChangeError,
-    FirmwareImageError,
-    UpdateFirmwareError,
-    VendorImportError,
-    DownloadVendorFirmwareError,
-    WireKeyError,
-);
 
 impl RpcError for UpdateError {
     fn into_cause(self) -> Cause {
@@ -63,7 +45,7 @@ pub struct Services {
     pub firmware: FirmwareServices,
 }
 
-pub fn handlers(services: &Services) -> RpcHandlers {
+pub fn handlers(services: &Services) -> Handlers {
     let Services {
         session,
         traffic,
@@ -71,7 +53,7 @@ pub fn handlers(services: &Services) -> RpcHandlers {
         presets,
         firmware,
     } = services;
-    let mut h = RpcHandlers::new();
+    let mut h = Handlers::new();
     h.unary(m::LIST_PORTS, session, |s, (): ()| async move {
         s.list_ports().await
     })

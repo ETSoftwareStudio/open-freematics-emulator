@@ -3,12 +3,12 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use effect_rpc::schema;
 use fme_core::contracts::presets::{
     Preset, PresetChangeError, PresetId, PresetNotFoundError, PresetOperation, PresetPersistError,
     PresetPids, PresetReadOnlyError, SavePresetInput, preset_name,
 };
 use fme_core::contracts::rpc::ApplyPresetError;
-use fme_core::json;
 use fme_core::shared::pids::{clamp_pid_value, find_pid};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tokio::sync::watch;
@@ -23,7 +23,7 @@ struct StoredPreset {
     id: PresetId,
     #[serde(deserialize_with = "preset_name")]
     name: String,
-    #[serde(with = "json::finite_record")]
+    #[serde(with = "schema::finite_record")]
     pids: PresetPids,
 }
 
@@ -43,7 +43,7 @@ impl<'de> Deserialize<'de> for Version {
         if version == 1.0 {
             Ok(Self)
         } else {
-            Err(serde::de::Error::custom(json::InvalidValue::new(
+            Err(serde::de::Error::custom(schema::InvalidValue::new(
                 "PresetFile.version",
                 version.to_string(),
             )))

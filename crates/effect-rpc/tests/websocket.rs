@@ -1,16 +1,21 @@
-//! The RPC layer over a real loopback WebSocket, with a table of test handlers.
+//! The protocol over a real loopback WebSocket, with a table of toy handlers.
+#![cfg(test)]
 
 use std::future::pending;
+use std::sync::{Arc, Mutex};
 
+use axum::Router;
+use axum::extract::{State, WebSocketUpgrade};
+use axum::response::Response;
+use axum::routing::get;
+use effect_rpc::{Cause, Handlers, Never, RpcError, changes};
+use futures_util::stream;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-
-use super::{Cause, Never, RpcError, RpcHandlers, changes};
-use crate::http;
 
 type Socket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
@@ -21,17 +26,13 @@ struct TestError {
     reason: &'static str,
 }
 
-impl RpcError for TestError {
-    fn into_cause(self) -> Cause {
-        super::handlers::fail(&self)
-    }
-}
+effect_rpc::typed_errors!(TestError);
 
 struct Broken;
 
 impl RpcError for Broken {
     fn into_cause(self) -> Cause {
-        Cause::Die(json!("a broken invariant"))
+        Cause::die("a broken invariant")
     }
 }
 
@@ -58,16 +59,20 @@ async fn boom() -> Result<(), Never> {
 struct Fixture {
     url: String,
     values: watch::Sender<u32>,
-    stopped: tokio::sync::Mutex<Option<oneshot::Receiver<()>>>,
-    polls: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<()>>,
+    stopped: Option<oneshot::Receiver<()>>,
+    polls: mpsc::UnboundedReceiver<()>,
+}
+
+async fn socket(State(handlers): State<Arc<Handlers>>, upgrade: WebSocketUpgrade) -> Response {
+    upgrade.on_upgrade(move |socket| effect_rpc::axum::serve(socket, handlers))
 }
 
 async fn fixture() -> Fixture {
     let (values, _) = watch::channel(1_u32);
     let (stopped_tx, stopped) = oneshot::channel();
-    let stopped_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(stopped_tx)));
-    let (polls_tx, polls) = tokio::sync::mpsc::unbounded_channel();
-    let mut handlers = RpcHandlers::new();
+    let stopped_tx = Arc::new(Mutex::new(Some(stopped_tx)));
+    let (polls_tx, polls) = mpsc::unbounded_channel();
+    let mut handlers = Handlers::new();
     handlers
         .unary("echo", &(), |(), payload: Echo| async move {
             Ok::<_, Never>(json!({ "text": payload.text }))
@@ -89,18 +94,26 @@ async fn fixture() -> Fixture {
             changes(values.subscribe()).inspect(move |_| {
                 polls.send(()).ok();
             })
+        })
+        .try_stream("countdown", &(), |(), from: u32| {
+            stream::iter((0..=from).rev().map(|n| match n {
+                0 => Err(TestError { reason: "liftoff" }),
+                n => Ok(vec![n]),
+            }))
         });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("ws://{}/ws", listener.local_addr().unwrap());
-    let app = http::router(handlers, None, None);
+    let url = format!("ws://{}/rpc", listener.local_addr().unwrap());
+    let app = Router::new()
+        .route("/rpc", get(socket))
+        .with_state(Arc::new(handlers));
     drop(tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap()
     }));
     Fixture {
         url,
         values,
-        stopped: tokio::sync::Mutex::new(Some(stopped)),
-        polls: tokio::sync::Mutex::new(polls),
+        stopped: Some(stopped),
+        polls,
     }
 }
 
@@ -251,9 +264,8 @@ async fn reads_batches_binary_frames_and_pings() {
 
 #[tokio::test]
 async fn sends_each_chunk_after_the_previous_ack() {
-    let fixture = fixture().await;
+    let mut fixture = fixture().await;
     let mut socket = connect(&fixture).await;
-    let mut polls = fixture.polls.lock().await;
 
     request(&mut socket, json!(7), "values", Value::Null).await;
     assert_eq!(next(&mut socket).await, chunk(7, json!([1])));
@@ -261,9 +273,9 @@ async fn sends_each_chunk_after_the_previous_ack() {
     fixture.values.send_replace(3);
     send(&mut socket, json!({ "_tag": "Ping" })).await;
     assert_eq!(next(&mut socket).await, json!({ "_tag": "Pong" }));
-    polls.recv().await.unwrap();
+    fixture.polls.recv().await.unwrap();
     assert!(
-        polls.try_recv().is_err(),
+        fixture.polls.try_recv().is_err(),
         "polled the stream before the ack"
     );
 
@@ -278,10 +290,31 @@ async fn sends_each_chunk_after_the_previous_ack() {
 }
 
 #[tokio::test]
-async fn an_interrupt_drops_the_running_handler() {
+async fn ends_a_stream_with_its_first_error() {
     let fixture = fixture().await;
     let mut socket = connect(&fixture).await;
-    let stopped = fixture.stopped.lock().await.take().unwrap();
+
+    request(&mut socket, json!(1), "countdown", json!(2)).await;
+    assert_eq!(next(&mut socket).await, chunk(1, json!([2])));
+    send(&mut socket, json!({ "_tag": "Ack", "requestId": 1 })).await;
+    assert_eq!(next(&mut socket).await, chunk(1, json!([1])));
+    send(&mut socket, json!({ "_tag": "Ack", "requestId": 1 })).await;
+    assert_eq!(
+        next(&mut socket).await,
+        exit(
+            json!(1),
+            json!({ "_tag": "Failure", "cause": [
+                { "_tag": "Fail", "error": { "_tag": "TestError", "reason": "liftoff" } }
+            ] })
+        )
+    );
+}
+
+#[tokio::test]
+async fn an_interrupt_drops_the_running_handler() {
+    let mut fixture = fixture().await;
+    let mut socket = connect(&fixture).await;
+    let stopped = fixture.stopped.take().unwrap();
 
     request(&mut socket, json!(8), "forever", Value::Null).await;
     send(&mut socket, json!({ "_tag": "Interrupt", "requestId": 8 })).await;
@@ -295,9 +328,9 @@ async fn an_interrupt_drops_the_running_handler() {
 
 #[tokio::test]
 async fn a_disconnect_drops_every_running_handler() {
-    let fixture = fixture().await;
+    let mut fixture = fixture().await;
     let mut socket = connect(&fixture).await;
-    let stopped = fixture.stopped.lock().await.take().unwrap();
+    let stopped = fixture.stopped.take().unwrap();
 
     request(&mut socket, json!(9), "forever", Value::Null).await;
     send(&mut socket, json!({ "_tag": "Ping" })).await;

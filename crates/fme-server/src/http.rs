@@ -11,11 +11,9 @@ use axum::http::{Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use effect_rpc::Handlers;
 use serde_json::json;
 use url::Url;
-
-use crate::rpc::RpcHandlers;
-use crate::rpc::connection;
 
 const LOOPBACK_HOSTNAMES: [&str; 3] = ["localhost", "127.0.0.1", "[::1]"];
 // Firmware images and vendor files travel inside RPC payloads.
@@ -87,11 +85,11 @@ async fn local_only(
     StatusCode::FORBIDDEN.into_response()
 }
 
-async fn socket(State(handlers): State<Arc<RpcHandlers>>, upgrade: WebSocketUpgrade) -> Response {
+async fn socket(State(handlers): State<Arc<Handlers>>, upgrade: WebSocketUpgrade) -> Response {
     upgrade
         .max_message_size(MAX_MESSAGE_SIZE)
         .max_frame_size(MAX_MESSAGE_SIZE)
-        .on_upgrade(move |socket| connection::serve(socket, handlers))
+        .on_upgrade(move |socket| effect_rpc::axum::serve(socket, handlers))
 }
 
 /// Effect's `HttpStaticServer` types; anything else is `application/octet-stream`.
@@ -209,11 +207,7 @@ async fn not_found() -> StatusCode {
 
 /// Every route, behind the local-only guard. `web_root` is the built web app, `None` in dev,
 /// where Vite serves it and proxies `/ws` here instead.
-pub fn router(
-    handlers: RpcHandlers,
-    web_root: Option<&Path>,
-    app_origin: Option<String>,
-) -> Router {
+pub fn router(handlers: Handlers, web_root: Option<&Path>, app_origin: Option<String>) -> Router {
     let mut router = Router::new()
         .route("/ws", get(socket).fallback(not_found))
         .with_state(Arc::new(handlers))

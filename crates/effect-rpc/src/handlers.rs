@@ -1,7 +1,8 @@
-//! The table of RPC handlers by tag, and the adapters that decode a payload, run a service
-//! method and encode its result for the wire.
+//! The registry of handlers by rpc tag, and the adapters that decode a payload, run the handler
+//! and encode its result.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -12,70 +13,48 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::sync::watch;
 
-/// How a request failed: a typed error the client decodes with the RPC's error schema, or a
-/// defect, which Effect's server reports to the whole connection.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Cause {
-    Fail(Value),
-    Die(Value),
-}
+use crate::cause::{Cause, Never, RpcError};
 
-/// A handler error. Contract errors encode as `Fail`; a broken invariant is a `Die`.
-pub trait RpcError {
-    fn into_cause(self) -> Cause;
-}
-
-/// The error of a handler that cannot fail.
-#[derive(Debug, Clone, Copy)]
-pub enum Never {}
-
-impl RpcError for Never {
-    fn into_cause(self) -> Cause {
-        match self {}
-    }
-}
-
-/// Implements [`RpcError`] for contract errors, which all encode as typed failures.
-#[macro_export]
-macro_rules! typed_rpc_errors {
-    ($($error:ty),+ $(,)?) => {
-        $(impl $crate::rpc::RpcError for $error {
-            fn into_cause(self) -> $crate::rpc::Cause {
-                $crate::rpc::handlers::fail(&self)
-            }
-        })+
-    };
-}
-
-#[doc(hidden)]
-pub fn fail(error: &impl Serialize) -> Cause {
-    match serde_json::to_value(error) {
-        Ok(value) => Cause::Fail(value),
-        Err(error) => Cause::Die(Value::String(format!("Failed to encode an error: {error}"))),
-    }
-}
-
-pub type Reply = Pin<Box<dyn Future<Output = Result<Value, Cause>> + Send>>;
-/// Batches of encoded stream values; each batch goes out as one `Chunk`.
-pub type Chunks = BoxStream<'static, Vec<Value>>;
+pub(crate) type Reply = Pin<Box<dyn Future<Output = Result<Value, Cause>> + Send>>;
+pub(crate) type Chunks = BoxStream<'static, Result<Vec<Value>, Cause>>;
 
 /// A decoded request, ready to run.
-pub enum Call {
+pub(crate) enum Call {
     Unary(Reply),
     Stream(Chunks),
 }
 
 type Handler = Box<dyn Fn(Option<Value>) -> Result<Call, String> + Send + Sync>;
 
+/// The handlers of an `RpcGroup`, by tag.
+///
+/// Each handler takes a context, cloned into every call (a service handle, an `Arc`, or `()`),
+/// and the decoded payload. Payloads decode with `serde`; one that doesn't decode answers the
+/// request with a `Die`, as Effect does. Successes and stream values encode with `serde`.
+///
+/// ```
+/// use effect_rpc::{Handlers, Never};
+///
+/// #[derive(serde::Deserialize)]
+/// struct Greet {
+///     name: String,
+/// }
+///
+/// let mut handlers = Handlers::new();
+/// handlers.unary("Greet", &(), |(), payload: Greet| async move {
+///     Ok::<_, Never>(format!("Hello, {}!", payload.name))
+/// });
+/// assert!(handlers.contains("Greet"));
+/// ```
 #[derive(Default)]
-pub struct RpcHandlers {
+pub struct Handlers {
     handlers: HashMap<&'static str, Handler>,
 }
 
-impl std::fmt::Debug for RpcHandlers {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RpcHandlers")
-            .field("tags", &self.handlers.len())
+impl fmt::Debug for Handlers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Handlers")
+            .field("tags", &self.handlers.keys())
             .finish()
     }
 }
@@ -94,13 +73,25 @@ fn encode(value: &impl Serialize) -> Result<Value, Cause> {
     })
 }
 
-impl RpcHandlers {
+fn encode_values<T: Serialize>(tag: &'static str, values: &[T]) -> Vec<Value> {
+    values
+        .iter()
+        .filter_map(|value| match serde_json::to_value(value) {
+            Ok(value) => Some(value),
+            Err(error) => {
+                tracing::warn!(rpc = tag, %error, "Dropped a stream value that didn't encode");
+                None
+            }
+        })
+        .collect()
+}
+
+impl Handlers {
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// A request answered by one value or one error. `context` (a service) is cloned into each
-    /// call.
+    /// An rpc answered by one value or one error: `Rpc.make(tag, { payload, success, error })`.
     pub fn unary<C, P, S, E, F, Fut>(
         &mut self,
         tag: &'static str,
@@ -129,7 +120,7 @@ impl RpcHandlers {
         self
     }
 
-    /// A request that always succeeds.
+    /// An rpc that always succeeds.
     pub fn infallible<C, P, S, F, Fut>(
         &mut self,
         tag: &'static str,
@@ -148,7 +139,9 @@ impl RpcHandlers {
         })
     }
 
-    /// A request answered by a stream of values, sent in acknowledged chunks.
+    /// A streaming rpc (`Rpc.make(tag, { stream: true })`) that cannot fail. Each item of the
+    /// stream is sent as one `Chunk`, after the client acknowledged the previous one; empty
+    /// items are skipped. The request succeeds when the stream ends.
     pub fn stream<C, P, T, F, St>(
         &mut self,
         tag: &'static str,
@@ -158,23 +151,36 @@ impl RpcHandlers {
     where
         C: Clone + Send + Sync + 'static,
         P: DeserializeOwned,
-        T: Serialize,
+        T: Serialize + 'static,
         F: Fn(C, P) -> St + Send + Sync + 'static,
         St: Stream<Item = Vec<T>> + Send + 'static,
+    {
+        self.try_stream(tag, context, move |context, payload| {
+            handler(context, payload).map(Ok::<_, Never>)
+        })
+    }
+
+    /// A streaming rpc that can fail: the first error ends the request with it.
+    pub fn try_stream<C, P, T, E, F, St>(
+        &mut self,
+        tag: &'static str,
+        context: &C,
+        handler: F,
+    ) -> &mut Self
+    where
+        C: Clone + Send + Sync + 'static,
+        P: DeserializeOwned,
+        T: Serialize + 'static,
+        E: RpcError + 'static,
+        F: Fn(C, P) -> St + Send + Sync + 'static,
+        St: Stream<Item = Result<Vec<T>, E>> + Send + 'static,
     {
         let context = context.clone();
         let handler = move |payload: Option<Value>| {
             let chunks = handler(context.clone(), decode(payload)?).map(move |values| {
                 values
-                    .iter()
-                    .filter_map(|value| match serde_json::to_value(value) {
-                        Ok(value) => Some(value),
-                        Err(error) => {
-                            tracing::warn!(rpc = tag, %error, "Dropped a stream value that didn't encode");
-                            None
-                        }
-                    })
-                    .collect()
+                    .map(|values| encode_values(tag, &values))
+                    .map_err(RpcError::into_cause)
             });
             Ok(Call::Stream(chunks.boxed()))
         };
@@ -186,12 +192,17 @@ impl RpcHandlers {
         self.handlers.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.handlers.is_empty()
+    }
+
     pub fn contains(&self, tag: &str) -> bool {
         self.handlers.contains_key(tag)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.handlers.is_empty()
+    /// The registered tags, in no particular order.
+    pub fn tags(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.handlers.keys().copied()
     }
 
     /// The handler's own tag, which outlives the request, and the decoded call. `None` for an
@@ -206,8 +217,9 @@ impl RpcHandlers {
     }
 }
 
-/// A `SubscriptionRef`-style stream: the current value, then the latest value after each change.
-/// Changes made while the client hasn't acknowledged the previous chunk coalesce into one.
+/// A `SubscriptionRef.changes`-style stream over a `watch` channel: the current value, then the
+/// latest value after each change. Changes made while the client hasn't acknowledged the previous
+/// chunk coalesce into one.
 pub fn changes<T>(receiver: watch::Receiver<T>) -> impl Stream<Item = Vec<T>> + Send + 'static
 where
     T: Clone + Send + Sync + 'static,

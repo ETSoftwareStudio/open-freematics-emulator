@@ -1,3 +1,5 @@
+use effect_rpc::string_enum;
+
 use crate::contracts::base_schemas::PidId;
 use crate::js;
 

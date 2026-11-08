@@ -1,8 +1,9 @@
+use effect_rpc::{schema, string_enum, tagged_struct};
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::base_schemas::PidId;
-use crate::{js, json};
+use crate::js;
 
 fn is_preset_id(value: &str) -> bool {
     let rest = value
@@ -29,7 +30,7 @@ pub fn preset_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String,
     let name = String::deserialize(deserializer)?;
     let trimmed = js::trim(&name);
     if trimmed.is_empty() || js::length(trimmed) > MAX_PRESET_NAME_LENGTH {
-        Err(serde::de::Error::custom(json::InvalidValue::new(
+        Err(serde::de::Error::custom(schema::InvalidValue::new(
             "PresetName",
             name,
         )))
@@ -48,7 +49,7 @@ pub struct Preset {
     #[serde(deserialize_with = "preset_name")]
     pub name: String,
     pub built_in: bool,
-    #[serde(with = "json::finite_record")]
+    #[serde(with = "schema::finite_record")]
     pub pids: PresetPids,
 }
 
@@ -66,7 +67,7 @@ pub struct SavePresetInput {
     pub id: Option<PresetId>,
     #[serde(deserialize_with = "preset_name")]
     pub name: String,
-    #[serde(with = "json::finite_record")]
+    #[serde(with = "schema::finite_record")]
     pub pids: PresetPids,
 }
 

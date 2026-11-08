@@ -13,41 +13,7 @@ pub fn math_round(value: f64) -> f64 {
 
 /// `Number.prototype.toString()` in base 10, e.g. `1000`, `14.2`, `1e+21`, `NaN`.
 pub fn number_to_string(value: f64) -> String {
-    if value.is_nan() {
-        return "NaN".to_owned();
-    }
-    if value == 0.0 {
-        return "0".to_owned();
-    }
-    if value.is_infinite() {
-        return if value > 0.0 { "Infinity" } else { "-Infinity" }.to_owned();
-    }
-    let sign = if value < 0.0 { "-" } else { "" };
-    let scientific = format!("{:e}", value.abs());
-    let (mantissa, exponent) = scientific.split_once('e').unwrap_or((&scientific, "0"));
-    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
-    let exponent: i32 = exponent.parse().unwrap_or(0);
-    let k = digits.len() as i32;
-    let n = exponent + 1;
-    let body = if k <= n && n <= 21 {
-        format!("{digits}{}", "0".repeat((n - k) as usize))
-    } else if 0 < n && n <= 21 {
-        let (int, frac) = digits.split_at(n as usize);
-        format!("{int}.{frac}")
-    } else if -6 < n && n <= 0 {
-        format!("0.{}{digits}", "0".repeat((-n) as usize))
-    } else {
-        let exponent = n - 1;
-        let exponent_sign = if exponent < 0 { '-' } else { '+' };
-        let (first, rest) = digits.split_at(1);
-        let fraction = if rest.is_empty() {
-            String::new()
-        } else {
-            format!(".{rest}")
-        };
-        format!("{first}{fraction}e{exponent_sign}{}", exponent.abs())
-    };
-    format!("{sign}{body}")
+    ryu_js::Buffer::new().format(value).to_owned()
 }
 
 /// `Number.parseInt(text, 16)`: leading whitespace, a sign and `0x` are skipped, then the

@@ -1,7 +1,8 @@
+use effect_rpc::{schema, string_enum, tagged_struct};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::emulator::ConnectTarget;
-use crate::{js, json};
+use crate::js;
 
 string_enum! {
     pub enum FirmwareUpdateStage {
@@ -47,7 +48,7 @@ pub const MAX_FIRMWARE_IMAGE_LENGTH: usize = 2_000_000;
 
 /// The Intel HEX file's text.
 fn firmware_image_text<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    json::checked(deserializer, "FirmwareImageText", |text: &String| {
+    schema::checked(deserializer, "FirmwareImageText", |text: &String| {
         js::length(text) <= MAX_FIRMWARE_IMAGE_LENGTH
     })
 }
@@ -85,7 +86,7 @@ pub fn is_library_image_name(name: &str) -> bool {
 }
 
 fn library_image_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    json::checked(deserializer, "LibraryImageName", |name: &String| {
+    schema::checked(deserializer, "LibraryImageName", |name: &String| {
         is_library_image_name(name)
     })
 }
@@ -104,7 +105,7 @@ pub enum FirmwareImageSource {
 }
 
 fn wire_key<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
-    json::checked(
+    schema::checked(
         deserializer,
         "FirmwareUpdateInput.wireKey",
         |key: &Option<String>| {
@@ -202,7 +203,7 @@ tagged_struct! {
 pub const MAX_VENDOR_BINARY_LENGTH: usize = 16_000_000;
 
 fn vendor_binary<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-    let bytes = json::bytes::deserialize(deserializer)?;
+    let bytes = schema::bytes::deserialize(deserializer)?;
     if bytes.len() > MAX_VENDOR_BINARY_LENGTH {
         Err(serde::de::Error::custom("the vendor binary is too large"))
     } else {
@@ -213,7 +214,7 @@ fn vendor_binary<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportWireKeyInput {
     #[serde(
-        serialize_with = "json::bytes::serialize",
+        serialize_with = "schema::bytes::serialize",
         deserialize_with = "vendor_binary"
     )]
     pub binary: Vec<u8>,
@@ -268,7 +269,7 @@ pub struct LibraryImage {
 }
 
 fn vendor_file_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    json::checked(deserializer, "VendorFile.name", |name: &String| {
+    schema::checked(deserializer, "VendorFile.name", |name: &String| {
         js::length(name) <= 255
     })
 }
@@ -279,14 +280,14 @@ pub struct VendorFile {
     #[serde(deserialize_with = "vendor_file_name")]
     pub name: String,
     #[serde(
-        serialize_with = "json::bytes::serialize",
+        serialize_with = "schema::bytes::serialize",
         deserialize_with = "vendor_binary"
     )]
     pub bytes: Vec<u8>,
 }
 
 fn vendor_files<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<VendorFile>, D::Error> {
-    json::checked(
+    schema::checked(
         deserializer,
         "ImportVendorFilesInput.files",
         |files: &Vec<VendorFile>| files.len() <= 32,

@@ -6,9 +6,13 @@ Rust. Clippy lints in the workspace `Cargo.toml` enforce the mechanical parts.
 
 ## Crates
 
+- `effect-rpc`: Effect RPC's WebSocket protocol and JSON codec, with nothing of this app in it,
+  so it can be published on its own. Its `schema` helpers and `tagged_struct!`/`string_enum!`
+  build the wire types; the `server` and `axum` features add the handler registry and the
+  socket.
 - `fme-core`: pure helpers and wire types, the counterpart of `packages/shared` and
   `packages/contracts`. No I/O, no async, no tokio.
-- `fme-server`: services, the WebSocket RPC transport, HTTP and the binary.
+- `fme-server`: services, the RPC handler table, HTTP and the binary.
 
 ## Effect to Rust
 
@@ -34,9 +38,10 @@ Rust. Clippy lints in the workspace `Cargo.toml` enforce the mechanical parts.
 
 ## Transport
 
-`rpc/` speaks Effect RPC over a WebSocket exactly as `RpcServer.layerHttp({ protocol:
+`effect-rpc` speaks Effect RPC over a WebSocket exactly as `RpcServer.layerHttp({ protocol:
 "websocket" })` with `RpcSerialization.layerJson` does, so the unchanged web client drives either
-server. `ws.rs` is the table: one service call per method, as in `ws.ts`. Wire rules:
+server. `fme-server/src/ws.rs` is the table: one service call per method, as in `ws.ts`. Contract
+errors implement `RpcError` in `fme-core` with `typed_errors!`. Wire rules:
 
 - A frame holds one JSON message or an array of them. Responses go out one per frame.
 - Each request runs as its own task. A typed error is an `Exit` with a `Fail` cause; a handler

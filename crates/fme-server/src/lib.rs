@@ -7,7 +7,6 @@ pub mod firmware;
 pub mod http;
 pub mod obd;
 pub mod presets;
-pub mod rpc;
 pub mod server;
 pub mod traffic;
 pub mod ws;

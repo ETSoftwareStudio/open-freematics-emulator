@@ -1,11 +1,11 @@
+use effect_rpc::{schema, string_enum, tagged_struct};
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::base_schemas::PidId;
-use crate::json;
 
 fn tcp_port<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u16, D::Error> {
-    json::checked(deserializer, "ReaderTarget.port", |port: &u16| *port >= 1)
+    schema::checked(deserializer, "ReaderTarget.port", |port: &u16| *port >= 1)
 }
 
 /// Where the OBD-II adapter (ELM327-compatible) plugged into the emulator is reachable.
@@ -14,12 +14,12 @@ fn tcp_port<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u16, D::Error>
 pub enum ReaderTarget {
     /// Bluetooth SPP or USB adapters show up as serial ports.
     Serial {
-        #[serde(deserialize_with = "json::non_empty_string")]
+        #[serde(deserialize_with = "schema::non_empty_string")]
         path: String,
     },
     /// Wi-Fi adapters, usually 192.168.0.10:35000.
     Tcp {
-        #[serde(deserialize_with = "json::non_empty_string")]
+        #[serde(deserialize_with = "schema::non_empty_string")]
         host: String,
         #[serde(deserialize_with = "tcp_port")]
         port: u16,
@@ -49,7 +49,7 @@ pub enum ReaderConnection {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PidReading {
-    #[serde(with = "json::number")]
+    #[serde(with = "schema::number")]
     pub value: f64,
     pub raw: Vec<u8>,
     pub at: u64,
@@ -78,14 +78,14 @@ impl PollInterval {
 }
 
 impl TryFrom<u16> for PollInterval {
-    type Error = json::InvalidValue;
+    type Error = schema::InvalidValue;
 
     fn try_from(millis: u16) -> Result<Self, Self::Error> {
         Self::ALL
             .iter()
             .copied()
             .find(|interval| interval.millis() == millis)
-            .ok_or_else(|| json::InvalidValue::new("PollInterval", millis.to_string()))
+            .ok_or_else(|| schema::InvalidValue::new("PollInterval", millis.to_string()))
     }
 }
 
@@ -122,7 +122,7 @@ pub struct ReaderState {
     /// Whether the last poll got an answer from the vehicle side.
     pub vehicle_responding: bool,
     /// Supply voltage the adapter measures on the OBD port (`ATRV`).
-    #[serde(with = "json::number_or_null")]
+    #[serde(with = "schema::number_or_null")]
     pub voltage: Option<f64>,
     pub dtcs: Option<Vec<String>>,
     /// When the codes were last read, with PID 0101 (MIL and readiness) read alongside.

@@ -1,5 +1,23 @@
-//! Serde helpers that encode values the way `Schema.toCodecJson` does, which is what Effect RPC
-//! puts on the wire.
+//! Serde helpers that encode values the way `Schema.toCodecJson` does, which is what
+//! `RpcSerialization.json` puts on the wire.
+//!
+//! ```
+//! #[derive(serde::Serialize, serde::Deserialize)]
+//! struct Reading {
+//!     // `Schema.Number`: `NaN` and the infinities travel as strings.
+//!     #[serde(with = "effect_rpc::schema::number")]
+//!     value: f64,
+//!     // `Schema.Uint8Array`: a Base64 string.
+//!     #[serde(with = "effect_rpc::schema::bytes")]
+//!     raw: Vec<u8>,
+//! }
+//!
+//! let reading = Reading { value: f64::NAN, raw: vec![1, 2] };
+//! assert_eq!(
+//!     serde_json::to_string(&reading).ok().as_deref(),
+//!     Some(r#"{"value":"NaN","raw":"AQI="}"#),
+//! );
+//! ```
 
 use std::fmt;
 use std::hash::Hash;
@@ -8,6 +26,7 @@ use indexmap::IndexMap;
 use serde::de::{self, Deserializer, Visitor};
 use serde::{Deserialize, Serialize, Serializer};
 
+/// A value a schema rejects, such as a string outside a `Schema.Literals` union.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{value:?} is not a valid {schema}")]
 pub struct InvalidValue {
@@ -86,7 +105,7 @@ impl<'de, const ALLOW_NON_FINITE: bool> Deserialize<'de> for Number<ALLOW_NON_FI
     }
 }
 
-/// `Schema.Number`.
+/// `Schema.Number`, for `#[serde(with)]`.
 pub mod number {
     use super::*;
 
@@ -114,7 +133,7 @@ pub mod number_or_null {
     }
 }
 
-/// `Schema.Finite`.
+/// `Schema.Finite` and `Schema.Int`, for `#[serde(with)]`: always a plain JSON number.
 pub mod finite {
     use super::*;
 
@@ -191,7 +210,7 @@ pub mod finite_record {
     }
 }
 
-/// `Schema.NonEmptyString`.
+/// `Schema.NonEmptyString`, for `#[serde(deserialize_with)]`.
 pub fn non_empty_string<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
     let value = String::deserialize(deserializer)?;
     if value.is_empty() {
@@ -204,8 +223,8 @@ pub fn non_empty_string<'de, D: Deserializer<'de>>(deserializer: D) -> Result<St
     }
 }
 
-/// Decodes a value and checks it, as a `Schema` filter does.
-pub(crate) fn checked<'de, T, D>(
+/// Decodes a value and checks it, as a `Schema` filter does. For `deserialize_with` functions.
+pub fn checked<'de, T, D>(
     deserializer: D,
     schema: &'static str,
     check: impl FnOnce(&T) -> bool,
@@ -299,7 +318,46 @@ pub mod bytes {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{Value, json};
+
     use super::*;
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Numbers {
+        #[serde(with = "number")]
+        number: f64,
+        #[serde(with = "finite")]
+        finite: f64,
+        #[serde(with = "number_or_null")]
+        maybe: Option<f64>,
+    }
+
+    #[test]
+    fn encodes_numbers_like_to_codec_json() {
+        for (number, encoded) in [
+            (1000.0, json!(1000)),
+            (14.2, json!(14.2)),
+            (f64::NAN, json!("NaN")),
+            (f64::INFINITY, json!("Infinity")),
+            (f64::NEG_INFINITY, json!("-Infinity")),
+        ] {
+            let numbers = Numbers {
+                number,
+                finite: 2.0,
+                maybe: None,
+            };
+            let value = serde_json::to_value(&numbers).unwrap();
+            assert_eq!(
+                value,
+                json!({ "number": encoded, "finite": 2, "maybe": null })
+            );
+            let decoded: Numbers = serde_json::from_value(value).unwrap();
+            assert!(decoded.number == number || number.is_nan() && decoded.number.is_nan());
+        }
+        let infinite = json!({ "number": 1, "finite": "Infinity", "maybe": null });
+        assert!(serde_json::from_value::<Numbers>(infinite).is_err());
+        assert!(serde_json::from_value::<Numbers>(Value::Null).is_err());
+    }
 
     #[test]
     fn round_trips_base64() {
