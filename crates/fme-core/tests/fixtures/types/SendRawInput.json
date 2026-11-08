@@ -1,0 +1,8 @@
+[
+  {
+    "command": "ATGET 010C"
+  },
+  {
+    "command": "atz"
+  }
+]

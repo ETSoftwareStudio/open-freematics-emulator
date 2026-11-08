@@ -1,0 +1,43 @@
+{
+  "payload": [null],
+  "success": [
+    {
+      "keyFound": true,
+      "imagesAdded": 3
+    }
+  ],
+  "error": [
+    {
+      "_tag": "VendorDownloadError",
+      "reason": "network"
+    },
+    {
+      "_tag": "VendorDownloadError",
+      "reason": "checksum"
+    },
+    {
+      "_tag": "VendorDownloadError",
+      "reason": "extract"
+    },
+    {
+      "_tag": "VendorDownloadError",
+      "reason": "busy"
+    },
+    {
+      "_tag": "VendorDownloadError",
+      "reason": "timeout"
+    },
+    {
+      "_tag": "VendorImportError",
+      "reason": "noKey"
+    },
+    {
+      "_tag": "VendorImportError",
+      "reason": "duplicateName"
+    },
+    {
+      "_tag": "VendorImportError",
+      "reason": "persist"
+    }
+  ]
+}

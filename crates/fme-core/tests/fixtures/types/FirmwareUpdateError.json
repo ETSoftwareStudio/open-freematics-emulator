@@ -1,0 +1,38 @@
+[
+  {
+    "_tag": "FirmwareUpdateError",
+    "reason": "busy"
+  },
+  {
+    "_tag": "FirmwareUpdateError",
+    "reason": "wrongKey"
+  },
+  {
+    "_tag": "FirmwareUpdateError",
+    "reason": "noKey"
+  },
+  {
+    "_tag": "FirmwareUpdateError",
+    "reason": "noBootloader"
+  },
+  {
+    "_tag": "FirmwareUpdateError",
+    "reason": "doesNotFit"
+  },
+  {
+    "_tag": "FirmwareUpdateError",
+    "reason": "rejected"
+  },
+  {
+    "_tag": "FirmwareUpdateError",
+    "reason": "noReply"
+  },
+  {
+    "_tag": "FirmwareUpdateError",
+    "reason": "unexpectedReply"
+  },
+  {
+    "_tag": "FirmwareUpdateError",
+    "reason": "link"
+  }
+]

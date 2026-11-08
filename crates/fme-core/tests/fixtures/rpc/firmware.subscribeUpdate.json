@@ -1,0 +1,46 @@
+{
+  "payload": [null],
+  "success": [
+    {
+      "_tag": "idle"
+    },
+    {
+      "_tag": "running",
+      "target": {
+        "_tag": "serial",
+        "path": "/dev/cu.usbserial-0001"
+      },
+      "stage": "writing",
+      "written": 40960,
+      "total": 90688
+    },
+    {
+      "_tag": "succeeded",
+      "target": {
+        "_tag": "serial",
+        "path": "/dev/cu.usbserial-0001"
+      },
+      "bytes": 90688,
+      "version": "1.3"
+    },
+    {
+      "_tag": "succeeded",
+      "target": {
+        "_tag": "simulated"
+      },
+      "bytes": 90688,
+      "version": null
+    },
+    {
+      "_tag": "failed",
+      "target": {
+        "_tag": "serial",
+        "path": "/dev/cu.usbserial-0001"
+      },
+      "stage": "erasing",
+      "reason": "The bootloader stopped answering.",
+      "applicationErased": true
+    }
+  ],
+  "error": []
+}

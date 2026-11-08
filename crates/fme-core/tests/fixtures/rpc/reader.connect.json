@@ -1,0 +1,37 @@
+{
+  "payload": [
+    {
+      "target": {
+        "_tag": "tcp",
+        "host": "192.168.0.10",
+        "port": 35000
+      }
+    },
+    {
+      "target": {
+        "_tag": "simulated"
+      }
+    }
+  ],
+  "success": [null],
+  "error": [
+    {
+      "_tag": "ReaderConnectError",
+      "target": {
+        "_tag": "tcp",
+        "host": "192.168.0.10",
+        "port": 35000
+      },
+      "reason": "open-failed"
+    },
+    {
+      "_tag": "ReaderConnectError",
+      "target": {
+        "_tag": "tcp",
+        "host": "192.168.0.10",
+        "port": 35000
+      },
+      "reason": "no-adapter"
+    }
+  ]
+}

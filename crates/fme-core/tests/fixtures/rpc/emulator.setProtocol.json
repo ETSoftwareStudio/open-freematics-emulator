@@ -1,0 +1,28 @@
+{
+  "payload": [
+    {
+      "protocol": "ISO9141_2"
+    }
+  ],
+  "success": [null],
+  "error": [
+    {
+      "_tag": "EmulatorNotConnectedError"
+    },
+    {
+      "_tag": "EmulatorCommandError",
+      "command": "ATSET 010C=0x1F,0x40",
+      "reason": "rejected"
+    },
+    {
+      "_tag": "EmulatorCommandError",
+      "command": "ATSET 010C=0x1F,0x40",
+      "reason": "timeout"
+    },
+    {
+      "_tag": "EmulatorCommandError",
+      "command": "ATSET 010C=0x1F,0x40",
+      "reason": "link"
+    }
+  ]
+}

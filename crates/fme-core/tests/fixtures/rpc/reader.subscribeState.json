@@ -1,0 +1,62 @@
+{
+  "payload": [null],
+  "success": [
+    {
+      "connection": {
+        "_tag": "disconnected"
+      },
+      "watching": [],
+      "polling": {
+        "paused": false,
+        "interval": 500
+      },
+      "pollRate": 0,
+      "readings": {},
+      "unanswered": [],
+      "vehicleResponding": false,
+      "voltage": null,
+      "dtcs": null,
+      "dtcsAt": null,
+      "monitorStatus": null,
+      "vin": null
+    },
+    {
+      "connection": {
+        "_tag": "connected",
+        "target": {
+          "_tag": "tcp",
+          "host": "192.168.0.10",
+          "port": 35000
+        },
+        "adapter": "ELM327 v1.5",
+        "protocol": "A6"
+      },
+      "watching": ["010C", "010D", "0105"],
+      "polling": {
+        "paused": true,
+        "interval": 2000
+      },
+      "pollRate": 12,
+      "readings": {
+        "010C": {
+          "value": 2000,
+          "raw": [31, 64],
+          "at": 1762600000123
+        },
+        "010D": {
+          "value": 72.5,
+          "raw": [72],
+          "at": 1762600000456
+        }
+      },
+      "unanswered": ["0105"],
+      "vehicleResponding": true,
+      "voltage": 12.4,
+      "dtcs": ["P0105", "C0123"],
+      "dtcsAt": 1762600001000,
+      "monitorStatus": [130, 7, 255, 0],
+      "vin": "1HGCD5654VA061985"
+    }
+  ],
+  "error": []
+}

@@ -1,0 +1,10 @@
+[
+  {
+    "dtcModes": ["03"],
+    "calibrationId": false
+  },
+  {
+    "dtcModes": ["03", "07", "0A"],
+    "calibrationId": true
+  }
+]

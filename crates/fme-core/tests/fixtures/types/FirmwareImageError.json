@@ -1,0 +1,22 @@
+[
+  {
+    "_tag": "FirmwareImageError",
+    "reason": "unreadable",
+    "line": null
+  },
+  {
+    "_tag": "FirmwareImageError",
+    "reason": "unreadable",
+    "line": 12
+  },
+  {
+    "_tag": "FirmwareImageError",
+    "reason": "outsideApplication",
+    "line": null
+  },
+  {
+    "_tag": "FirmwareImageError",
+    "reason": "notInLibrary",
+    "line": null
+  }
+]

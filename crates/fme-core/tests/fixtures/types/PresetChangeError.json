@@ -1,0 +1,32 @@
+[
+  {
+    "_tag": "PresetNotFoundError",
+    "id": "user:gone"
+  },
+  {
+    "_tag": "PresetReadOnlyError",
+    "id": "builtin:idle",
+    "operation": "save"
+  },
+  {
+    "_tag": "PresetReadOnlyError",
+    "id": "builtin:idle",
+    "operation": "delete"
+  },
+  {
+    "_tag": "PresetPersistError",
+    "path": "/data/presets.json",
+    "cause": {
+      "name": "Error",
+      "message": "EACCES"
+    }
+  },
+  {
+    "_tag": "PresetPersistError",
+    "path": "/data/presets.json",
+    "cause": {
+      "code": "ENOSPC",
+      "errno": -28
+    }
+  }
+]

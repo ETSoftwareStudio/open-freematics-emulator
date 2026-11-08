@@ -1,0 +1,36 @@
+{
+  "payload": [
+    {
+      "image": ":020000040800F2\n:00000001FF\n"
+    }
+  ],
+  "success": [
+    {
+      "start": 134232064,
+      "end": 134322752,
+      "bytes": 90688
+    }
+  ],
+  "error": [
+    {
+      "_tag": "FirmwareImageError",
+      "reason": "unreadable",
+      "line": null
+    },
+    {
+      "_tag": "FirmwareImageError",
+      "reason": "unreadable",
+      "line": 12
+    },
+    {
+      "_tag": "FirmwareImageError",
+      "reason": "outsideApplication",
+      "line": null
+    },
+    {
+      "_tag": "FirmwareImageError",
+      "reason": "notInLibrary",
+      "line": null
+    }
+  ]
+}

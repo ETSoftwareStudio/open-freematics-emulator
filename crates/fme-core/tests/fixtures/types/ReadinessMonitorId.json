@@ -1,0 +1,13 @@
+[
+  "misfire",
+  "fuelSystem",
+  "components",
+  "catalyst",
+  "heatedCatalyst",
+  "evaporativeSystem",
+  "secondaryAirSystem",
+  "acRefrigerant",
+  "oxygenSensor",
+  "oxygenSensorHeater",
+  "egrSystem"
+]

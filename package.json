@@ -20,6 +20,7 @@
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
     "sync:repos": "sh scripts/sync-reference-repos.sh",
+    "rs:fixtures": "node packages/shared/scripts/rust-fixtures.ts && vp fmt crates/fme-core/tests/fixtures",
     "rs:check": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
     "check": "vp fmt --check && vp lint && vp run -r typecheck && vp run -r test && vp run rs:check",
     "hardware:check": "node apps/server/scripts/hardware-check.ts"

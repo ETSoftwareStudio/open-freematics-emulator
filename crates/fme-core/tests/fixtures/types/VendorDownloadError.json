@@ -1,0 +1,22 @@
+[
+  {
+    "_tag": "VendorDownloadError",
+    "reason": "network"
+  },
+  {
+    "_tag": "VendorDownloadError",
+    "reason": "checksum"
+  },
+  {
+    "_tag": "VendorDownloadError",
+    "reason": "extract"
+  },
+  {
+    "_tag": "VendorDownloadError",
+    "reason": "busy"
+  },
+  {
+    "_tag": "VendorDownloadError",
+    "reason": "timeout"
+  }
+]

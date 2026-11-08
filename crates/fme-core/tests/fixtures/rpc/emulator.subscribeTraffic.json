@@ -1,0 +1,20 @@
+{
+  "payload": [null],
+  "success": [
+    {
+      "sequence": 1,
+      "channel": "emulator",
+      "at": 1762600000000,
+      "direction": "tx",
+      "text": "ATZ"
+    },
+    {
+      "sequence": 2,
+      "channel": "reader",
+      "at": 1762600000017,
+      "direction": "rx",
+      "text": "41 0C 1F 40"
+    }
+  ],
+  "error": []
+}
