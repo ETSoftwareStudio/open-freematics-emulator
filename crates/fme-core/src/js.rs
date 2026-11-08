@@ -70,6 +70,59 @@ pub fn parse_int_hex(text: &str) -> Option<f64> {
     value.map(|value| if negative { -value } else { value })
 }
 
+/// `Number(text)`: trims whitespace, reads `""` as 0, takes `0x`/`0o`/`0b` integers, signed
+/// decimals and `Infinity`. `NaN` where JavaScript returns `NaN`.
+pub fn number(text: &str) -> f64 {
+    let text = trim(text);
+    if text.is_empty() {
+        return 0.0;
+    }
+    let radix = match text.get(..2).map(str::to_ascii_lowercase).as_deref() {
+        Some("0x") => 16,
+        Some("0o") => 8,
+        Some("0b") => 2,
+        _ => 10,
+    };
+    if radix != 10 {
+        let digits = &text[2..];
+        if digits.is_empty() {
+            return f64::NAN;
+        }
+        return digits
+            .chars()
+            .try_fold(0.0, |value, c| {
+                c.to_digit(radix)
+                    .map(|digit| value * f64::from(radix) + f64::from(digit))
+            })
+            .unwrap_or(f64::NAN);
+    }
+    let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
+    if unsigned == "Infinity" {
+        return if text.starts_with('-') {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        };
+    }
+    let (mantissa, exponent) = unsigned
+        .split_once(['e', 'E'])
+        .map_or((unsigned, None), |(mantissa, exponent)| {
+            (mantissa, Some(exponent))
+        });
+    let (int, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let digits = |part: &str| part.chars().all(|c| c.is_ascii_digit());
+    let valid_mantissa =
+        digits(int) && digits(fraction) && !(int.is_empty() && fraction.is_empty());
+    let valid_exponent = exponent.is_none_or(|exponent| {
+        let exponent = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+        !exponent.is_empty() && digits(exponent)
+    });
+    if !(valid_mantissa && valid_exponent) {
+        return f64::NAN;
+    }
+    text.parse().unwrap_or(f64::NAN)
+}
+
 /// The characters `String.prototype.trim` and regex `\s` match.
 pub fn is_whitespace(c: char) -> bool {
     matches!(
@@ -134,5 +187,28 @@ mod tests {
         assert_eq!(parse_int_hex("-1"), Some(-1.0));
         assert_eq!(parse_int_hex("zz"), None);
         assert_eq!(parse_int_hex(""), None);
+    }
+
+    #[test]
+    fn converts_strings_like_number() {
+        for (text, expected) in [
+            ("", 0.0),
+            ("  13.8 ", 13.8),
+            ("-10", -10.0),
+            ("+.5", 0.5),
+            ("1.", 1.0),
+            ("1E3", 1000.0),
+            ("0X1F", 31.0),
+            ("0b101", 5.0),
+            ("Infinity", f64::INFINITY),
+            ("-Infinity", f64::NEG_INFINITY),
+        ] {
+            assert_eq!(number(text), expected, "{text:?}");
+        }
+        for text in [
+            "abc", "1,2", ".", "1e", "-0x10", "0x", "inf", "NaN", "1_000", "e5",
+        ] {
+            assert!(number(text).is_nan(), "{text:?}");
+        }
     }
 }
