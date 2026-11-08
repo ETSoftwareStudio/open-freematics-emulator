@@ -7,6 +7,17 @@ on:
         description: Sign and notarize the macOS app (needs the signing secrets)
         type: boolean
         default: false
+  push:
+    branches: [feat/rust-tauri]
+    paths:
+      - "apps/desktop-tauri/**"
+      - "apps/web/**"
+      - "crates/**"
+      - "packages/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/desktop-tauri.yml"
   pull_request:
     paths:
       - "apps/desktop-tauri/**"
