@@ -7,3 +7,4 @@ mod macros;
 pub mod contracts;
 pub mod js;
 pub mod json;
+pub mod shared;
