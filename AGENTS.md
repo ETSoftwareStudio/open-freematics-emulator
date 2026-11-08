@@ -76,6 +76,7 @@ Both sides write to one `TrafficLog`.
 - Test rules live in [Testing](docs/internals/testing.md). Effect code uses `it.effect` from
   `@effect/vitest` (TestClock); no sleeps, polling, or wall-clock deltas.
 - Backend behavior changes ship with focused tests against `SimulatedDevice`.
+- `vp run conformance` checks the Rust server answers every RPC as the TypeScript one does.
 - To run the app and verify a change in the browser or on hardware, use the
   [test-emulator-app](.agents/skills/test-emulator-app/SKILL.md) skill.
 

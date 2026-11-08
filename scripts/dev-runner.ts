@@ -6,21 +6,33 @@ const webPort = process.env.PORT ?? "5738";
 const webUrl = `http://localhost:${webPort}`;
 // `--desktop` also opens the Electron window on the dev server, so the UI hot-reloads there too.
 const desktop = process.argv.includes("--desktop");
+// `--rust` serves the API from the Rust server instead, built once and not restarted on changes.
+const rust = process.argv.includes("--rust");
 
 interface Task {
   readonly name: string;
   readonly cwd: string;
+  readonly command?: string;
   readonly args: ReadonlyArray<string>;
   readonly env?: Record<string, string>;
 }
 
+if (rust) {
+  const build = NodeChildProcess.spawnSync("cargo", ["build", "-p", "fme-server", "--bin", "fme"], {
+    stdio: "inherit",
+  });
+  if (build.status !== 0) process.exit(build.status ?? 1);
+}
+
 const tasks: ReadonlyArray<Task> = [
-  { name: "server", cwd: "apps/server", args: ["run", "dev"] },
+  rust
+    ? { name: "server", cwd: ".", command: "target/debug/fme", args: ["--dev"] }
+    : { name: "server", cwd: "apps/server", args: ["run", "dev"] },
   { name: "web", cwd: "apps/web", args: ["run", "dev"] },
 ];
 
 const spawnTask = (task: Task) => {
-  const child = NodeChildProcess.spawn("vp", task.args, {
+  const child = NodeChildProcess.spawn(task.command ?? "vp", task.args, {
     cwd: task.cwd,
     env: { ...process.env, FME_SERVER_PORT: serverPort, PORT: webPort, ...task.env },
     stdio: ["ignore", "pipe", "pipe"],

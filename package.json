@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-runner.ts",
+    "dev:rs": "node scripts/dev-runner.ts --rust",
     "dev:server": "vp run --filter @fme/server dev",
     "dev:web": "vp run --filter @fme/web dev",
     "build": "vp run --filter @fme/web build && vp run --filter @fme/server build",
@@ -23,7 +24,8 @@
     "rs:fixtures": "node packages/shared/scripts/rust-fixtures.ts && vp fmt crates/fme-core/tests/fixtures",
     "rs:check": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
     "check": "vp fmt --check && vp lint && vp run -r typecheck && vp run -r test && vp run rs:check",
-    "hardware:check": "node apps/server/scripts/hardware-check.ts"
+    "hardware:check": "node apps/server/scripts/hardware-check.ts",
+    "conformance": "node apps/server/scripts/conformance.ts"
   },
   "devDependencies": {
     "@effect/language-service": "catalog:",
