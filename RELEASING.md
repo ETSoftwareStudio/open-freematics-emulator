@@ -1,30 +1,31 @@
 # Releasing
 
-One tag releases everything: installers for macOS, Windows and Linux on GitHub Releases, the npm
-package behind `npx open-freematics-emulator`, and the Homebrew cask. The
+Merging the release PR releases everything: installers for macOS, Windows and Linux on GitHub
+Releases, the npm package behind `npx open-freematics-emulator`, and the Homebrew cask. The
 [Release workflow](.github/workflows/release.yml) does the work; CI runs on every push and pull
 request.
 
 ## Every release
 
-1. Set `version` in `apps/desktop/package.json`. It versions the desktop app and the npm package.
-2. Commit it (`chore: release 0.2.0`), push `main`, and wait for CI to pass.
-3. Tag and push the tag:
+Versions come from [Conventional Commits](https://www.conventionalcommits.org/) on `main`:
+`fix:` and `perf:` make a patch release, `feat:` a minor one, and a `!` (`feat!:`) a major one.
+Other types (`docs:`, `ci:`, `chore:`, …) don't release on their own. Squash-merged PRs take the
+PR title as the commit, so the **PR title** check holds titles to the same format.
 
-   ```sh
-   git tag v0.2.0
-   git push origin v0.2.0
-   ```
+1. Merge work into `main` as usual. release-please keeps one PR open,
+   `chore(main): release X.Y.Z`, with the next version in `apps/desktop/package.json` (it versions
+   the desktop app and the npm package) and the new `CHANGELOG.md` entry. CI runs on it too.
+2. When you want to ship, merge that PR.
+3. Watch **Actions → Release**. release-please creates the tag and a draft GitHub Release with the
+   changelog as notes. The workflow then runs the checks, builds and smoke-tests the installers on
+   all three OSes, smoke-tests the npm package, uploads the installers and a `SHA256SUMS.txt` and
+   publishes the release, publishes to npm, and updates the Homebrew tap.
 
-4. Watch **Actions → Release**. It runs the checks, builds and smoke-tests the installers on all
-   three OSes, smoke-tests the npm package, publishes the GitHub Release with a `SHA256SUMS.txt`,
-   publishes to npm, and updates the Homebrew tap.
+To force a version, add a commit to `main` with `Release-As: 1.2.0` in its body.
 
-A version with a suffix (`0.2.0-beta.1`) is a prerelease: a GitHub prerelease, the `next` tag on
-npm, and no Homebrew update.
-
-If a job fails after the GitHub Release exists, fix the cause and use **Re-run failed jobs**. To
-start over, delete the release and the tag on GitHub, then tag again.
+If a job fails after the release PR is merged, fix the cause and use **Re-run failed jobs** on that
+run. The release stays a draft until the installers are uploaded, so nobody downloads a release
+without them.
 
 ## One-time setup
 
@@ -32,7 +33,10 @@ start over, delete the release and the tag on GitHub, then tag again.
 
 - The repo must be public before the first release: npm provenance and the download links in the
   Homebrew cask need it.
-- Optional: add a tag ruleset for `v*` so only maintainers can create release tags.
+- Settings → Actions → General → **Allow GitHub Actions to create and approve pull requests** must
+  be on, or release-please can't open its PR.
+- Optional: add a tag ruleset for `v*` so only maintainers and the release workflow can create
+  release tags.
 
 ### npm
 
