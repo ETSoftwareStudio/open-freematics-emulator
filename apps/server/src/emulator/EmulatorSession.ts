@@ -215,7 +215,13 @@ const make = Effect.gen(function* () {
       unsent.push({ _tag: "calibrationId", calibrationId: desired.calibrationId });
     }
     return {
-      state: { ...pushed, vin: Option.getOrNull(vin), calibrationId, capabilities },
+      // Without a readback, the VIN is the one the device acknowledged above, if any.
+      state: {
+        ...pushed,
+        vin: Option.getOrElse(vin, () => desired.vin),
+        calibrationId,
+        capabilities,
+      },
       unsent,
     };
   });

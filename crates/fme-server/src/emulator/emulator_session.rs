@@ -168,7 +168,10 @@ async fn push_state(
             calibration_id: calibration_id.clone(),
         });
     }
-    pushed.vin = vin;
+    // Without a readback, the VIN is the one the device acknowledged above, if any.
+    if vin.is_some() {
+        pushed.vin = vin;
+    }
     pushed.calibration_id = calibration_id;
     pushed.capabilities = Some(capabilities);
     Ok(Pushed {
@@ -834,6 +837,21 @@ mod tests {
                 calibration_id: false,
             })
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn keeps_the_vin_the_device_took_when_it_cant_read_the_vin_back() {
+        let fixture = on(SimulatedVersion::V1_2);
+        fixture.simulated.lock().firmware.reject_command = Some("ATGET VIN".to_owned());
+        let vin = Vin::new("WVWZZZ1JZXW000001").unwrap();
+        fixture.session.set_vin(&vin).await.unwrap();
+        fixture
+            .session
+            .connect(ConnectTarget::Simulated)
+            .await
+            .unwrap();
+        assert_eq!(fixture.simulated.lock().firmware.vin, "WVWZZZ1JZXW000001");
+        assert_eq!(fixture.state().vin.as_deref(), Some("WVWZZZ1JZXW000001"));
     }
 
     #[tokio::test(start_paused = true)]

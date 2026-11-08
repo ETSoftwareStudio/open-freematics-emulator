@@ -56,6 +56,8 @@ export class SimulatedFirmware {
   pendingDtcs: ReadonlyArray<string> = [];
   permanentDtcs: ReadonlyArray<string> = [];
   readonly pids = new Map<string, ReadonlyArray<number>>();
+  /** A command to answer with `ERROR`, like firmware that lacks it. */
+  rejectCommand: string | null = null;
 
   constructor(version: SimulatedVersion = "1.3") {
     this.version = version;
@@ -101,6 +103,7 @@ export class SimulatedFirmware {
     const ok = "OK\r";
     const error = "ERROR\r";
     const command = line.replaceAll(" ", "").toUpperCase();
+    if (command === this.rejectCommand?.replaceAll(" ", "").toUpperCase()) return error;
     const [, setKey, setValue] = /^ATSET(\w+)=(.*)$/.exec(command) ?? [];
     const [, getKey] = /^ATGET(\w+)$/.exec(command) ?? [];
     const v13 = this.version === "1.3";

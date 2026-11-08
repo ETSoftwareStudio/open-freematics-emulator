@@ -152,6 +152,18 @@ describe("EmulatorSession offline edits", () => {
       expect((yield* stateOf).capabilities).toEqual({ dtcModes: ["03"], calibrationId: false });
     }).pipe(Effect.provide(TestLayer)),
   );
+
+  it.effect("keeps the VIN the device took when it can't read the VIN back", () =>
+    Effect.gen(function* () {
+      const session = yield* EmulatorSession.EmulatorSession;
+      const { firmware } = yield* SimulatedDevice.SimulatedDevice;
+      firmware.rejectCommand = "ATGET VIN";
+      yield* session.setVin("WVWZZZ1JZXW000001");
+      yield* session.connect({ _tag: "simulated" });
+      expect(firmware.vin).toBe("WVWZZZ1JZXW000001");
+      expect((yield* stateOf).vin).toBe("WVWZZZ1JZXW000001");
+    }).pipe(Effect.provide(TestLayer)),
+  );
 });
 
 describe("EmulatorSession on V1.3", () => {

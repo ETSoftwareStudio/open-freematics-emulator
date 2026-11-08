@@ -124,6 +124,8 @@ pub struct SimulatedFirmware {
     pub pending_dtcs: Vec<String>,
     pub permanent_dtcs: Vec<String>,
     pub pids: HashMap<String, Vec<u8>>,
+    /// A command to answer with `ERROR`, like firmware that lacks it.
+    pub reject_command: Option<String>,
 }
 
 impl Default for SimulatedFirmware {
@@ -147,6 +149,7 @@ impl SimulatedFirmware {
             pending_dtcs: Vec::new(),
             permanent_dtcs: Vec::new(),
             pids: HashMap::new(),
+            reject_command: None,
         };
         firmware.reset_pids();
         firmware
@@ -208,6 +211,13 @@ impl SimulatedFirmware {
         const OK: &str = "OK\r";
         const ERROR: &str = "ERROR\r";
         let command = normalize(line);
+        if self
+            .reject_command
+            .as_deref()
+            .is_some_and(|rejected| normalize(rejected) == command)
+        {
+            return ERROR.to_owned();
+        }
         let v13 = self.version == SimulatedVersion::V1_3;
 
         match command.as_str() {
