@@ -50,6 +50,8 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Install the serial port library the Rust server links
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec vp run check
 
@@ -61,10 +63,33 @@ jobs:
     # Only the macOS signing secrets are read; without them the app is ad-hoc signed.
     secrets: inherit
 
+  # One platform package per target, each with the `fme` binary built on its own runner (macOS
+  # x64 cross-compiles), and the main package (launcher + web app) from the Linux x64 runner. No
+  # Rust cache here, so a release builds from the lockfile alone.
   npm-package:
-    name: npm package
+    name: npm package (${{ matrix.target }})
     needs: check
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-latest, target: aarch64-apple-darwin, npm: darwin-arm64, smoke: true }
+          - { runner: macos-latest, target: x86_64-apple-darwin, npm: darwin-x64, smoke: false }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc, npm: win32-x64, smoke: true }
+          - {
+              runner: windows-11-arm,
+              target: aarch64-pc-windows-msvc,
+              npm: win32-arm64,
+              smoke: true,
+            }
+          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, npm: linux-x64, smoke: true }
+          - {
+              runner: ubuntu-22.04-arm,
+              target: aarch64-unknown-linux-gnu,
+              npm: linux-arm64,
+              smoke: true,
+            }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,13 +99,26 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Install the serial port library the Rust server links
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - run: rustup target add ${{ matrix.target }}
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec vp run npm:stage
-      - run: pnpm exec vp run npm:smoke
-      - run: mkdir npm-dist && npm pack ./apps/server/.stage/npm --pack-destination npm-dist
+      - run: pnpm exec vp run npm:stage --target ${{ matrix.target }}
+      - name: Smoke-test the packages as npx runs them
+        if: matrix.smoke
+        run: pnpm exec vp run npm:smoke
+      - name: Pack
+        shell: bash
+        run: |
+          mkdir npm-dist
+          npm pack "./apps/server/.stage/npm/open-freematics-emulator-${{ matrix.npm }}" --pack-destination npm-dist
+          if [ "${{ matrix.target }}" = x86_64-unknown-linux-gnu ]; then
+            npm pack ./apps/server/.stage/npm/open-freematics-emulator --pack-destination npm-dist
+          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: npm-package
+          name: npm-${{ matrix.npm }}
           path: npm-dist/*.tgz
           if-no-files-found: error
 
@@ -125,11 +163,26 @@ jobs:
       - run: npm install --global npm@^11.5.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: npm-package
+          pattern: npm-*
+          path: npm-dist
+          merge-multiple: true
+      # The platform packages go first: the main package's optionalDependencies point at them.
+      # A version that's already on npm is skipped, so a re-run finishes a half-done publish.
       - name: Publish
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
-        run: npm publish "open-freematics-emulator-$VERSION.tgz" --access public
+        run: |
+          publish() {
+            if curl -fs -o /dev/null "https://registry.npmjs.org/$1/$VERSION"; then
+              echo "$1@$VERSION is already on npm"
+            else
+              npm publish "npm-dist/$1-$VERSION.tgz" --access public
+            fi
+          }
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64; do
+            publish "open-freematics-emulator-$platform"
+          done
+          publish open-freematics-emulator
 
   homebrew:
     name: Update the Homebrew tap
