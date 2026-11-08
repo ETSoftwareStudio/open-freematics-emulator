@@ -51,6 +51,9 @@ server. `ws.rs` is the table: one service call per method, as in `ws.ts`. Wire r
 
 `http.rs` serves `/ws`, `/api/health` and the built web app (Effect's static server rules and
 MIME types) behind the loopback same-origin guard. The `fme` binary takes `bin.ts`'s flags.
+`server::Server` binds first (port 0 picks a free one) and serves until a shutdown future
+resolves, then closes the device links; the Tauri app (`apps/desktop-tauri`) runs it in-process
+that way.
 
 ## Checking
 
