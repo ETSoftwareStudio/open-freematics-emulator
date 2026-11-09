@@ -201,7 +201,7 @@ async fn within<T>(
 }
 
 /// The bootloader side of the port. Bytes are read only while a reply is awaited, and what the
-/// link has buffered meanwhile is read next, as the TypeScript reader queues it.
+/// link has buffered meanwhile is read next.
 struct Bootloader {
     link: Box<dyn DeviceLink>,
     pending: Vec<u8>,

@@ -1,4 +1,4 @@
-// Makes the web toolbar's `drag-region` drag the window, as `app-region: drag` does in Electron;
+// Makes the web toolbar's `drag-region` drag the window, as `app-region: drag` does in Chromium;
 // WebKit ignores that CSS. Double-click zooms on mouseup, as the system title bar does.
 (() => {
   const NO_DRAG =

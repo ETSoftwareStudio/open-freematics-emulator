@@ -1,9 +1,10 @@
 # Releasing
 
-Merging the release PR releases everything: installers for macOS, Windows and Linux on GitHub
-Releases, the npm packages behind `npx open-freematics-emulator`, and the Homebrew cask. The
-[Release workflow](.github/workflows/release.yml) does the work; CI runs on every push and pull
-request.
+Merging the release PR publishes the npm packages behind `npx open-freematics-emulator` and a
+GitHub Release with the changelog. The [Release workflow](.github/workflows/release.yml) does the
+work; CI runs on every push and pull request. The desktop installers aren't released yet: the
+[Desktop (Tauri) workflow](.github/workflows/desktop-tauri.yml) builds and smoke-tests them, but
+nothing publishes them, and the Homebrew cask waits on them.
 
 ## Every release
 
@@ -13,27 +14,24 @@ Other types (`docs:`, `ci:`, `chore:`, …) don't release on their own. Squash-m
 PR title as the commit, so the **PR title** check holds titles to the same format.
 
 1. Merge work into `main` as usual. release-please keeps one PR open,
-   `chore(main): release X.Y.Z`, with the next version in `apps/desktop/package.json` (it versions
-   the desktop app and the npm package) and the new `CHANGELOG.md` entry. CI runs on it too.
+   `chore(main): release X.Y.Z`, with the next version in `apps/desktop-tauri/package.json` (it
+   versions the desktop app and the npm packages) and the new `CHANGELOG.md` entry. CI runs on it
+   too.
 2. When you want to ship, merge that PR.
 3. Watch **Actions → Release**. release-please creates the tag and a draft GitHub Release with the
-   changelog as notes. The workflow then runs the checks, builds and smoke-tests the installers on
-   all three OSes, builds the `fme` server for the six npm platforms and smoke-tests the npm
-   packages, uploads the installers and a `SHA256SUMS.txt` and publishes the release, publishes to
-   npm, and updates the Homebrew tap.
+   changelog as notes. The workflow then runs the checks, builds the `fme` server for the six npm
+   platforms and smoke-tests the npm packages, publishes the release, and publishes to npm.
 
 To force a version, add a commit to `main` with `Release-As: 1.2.0` in its body.
 
 If a job fails after the release PR is merged, fix the cause and use **Re-run failed jobs** on that
-run. The release stays a draft until the installers are uploaded, so nobody downloads a release
-without them.
+run. The release stays a draft until every npm package is built and smoke-tested.
 
 ## One-time setup
 
 ### Repository
 
-- The repo must be public before the first release: npm provenance and the download links in the
-  Homebrew cask need it.
+- The repo must be public before the first release: npm provenance needs it.
 - Settings → Actions → General → **Allow GitHub Actions to create and approve pull requests** must
   be on, or release-please can't open its PR.
 - Optional: add a tag ruleset for `v*` so only maintainers and the release workflow can create
@@ -79,7 +77,8 @@ package; `--target <rust triple>` stages another one if its Rust target is insta
 3. In this repo, add the Actions secret `HOMEBREW_TAP_TOKEN` with that token and the Actions
    variable `HOMEBREW_TAP` set to `ETSoftwareStudio/homebrew-tap`.
 
-The Release workflow skips the tap while `HOMEBREW_TAP` is unset. Users install with:
+No workflow updates the tap until the Release workflow publishes the Tauri DMGs again (see
+[Later](#later)). Users install with:
 
 ```sh
 brew install --cask etsoftwarestudio/tap/open-freematics-emulator
@@ -89,9 +88,9 @@ The cask template is [packaging/homebrew](packaging/homebrew/open-freematics-emu
 
 ### macOS signing and notarization
 
-Release builds sign the Mac app with a Developer ID and notarize it when these secrets exist, so it
-opens without a Gatekeeper warning. Without them the app is ad-hoc signed and users must click
-**Open Anyway** in System Settings → Privacy & Security.
+The Desktop (Tauri) workflow signs the Mac app with a Developer ID and notarizes it when it runs
+with `sign` and these secrets exist, so it opens without a Gatekeeper warning. Without them the app
+is ad-hoc signed and users must click **Open Anyway** in System Settings → Privacy & Security.
 
 1. **Developer ID Application certificate.** Creating one needs the Account Holder role on the
    team whose name users should see (ET Software Studio Inc.). In Xcode → Settings → Accounts →
@@ -101,6 +100,7 @@ opens without a Gatekeeper warning. Without them the app is ad-hoc signed and us
    ```sh
    base64 -i DeveloperID.p12 | gh secret set MAC_CERTIFICATE
    gh secret set MAC_CERTIFICATE_PASSWORD
+   gh secret set MAC_SIGNING_IDENTITY   # "Developer ID Application: <team name> (<team id>)"
    ```
 
 2. **App Store Connect API key** for notarization. In App Store Connect → Users and Access →
@@ -113,8 +113,8 @@ opens without a Gatekeeper warning. Without them the app is ad-hoc signed and us
    gh secret set APPLE_API_ISSUER
    ```
 
-3. **Try it without releasing:** `gh workflow run desktop.yml -f sign=true`, download the
-   `desktop-macOS` artifact, mount the `.dmg` and run
+3. **Try it:** `gh workflow run desktop-tauri.yml -f sign=true`, download the
+   `desktop-tauri-aarch64-apple-darwin` artifact, mount the `.dmg` and run
    `spctl -a -vv "/Volumes/…/Open Freematics Emulator.app"`. It should say
    `accepted` and `source=Notarized Developer ID`.
 
@@ -122,8 +122,11 @@ Delete the `.p12` and `.p8` from your disk once they are stored as secrets.
 
 ## Later
 
+- **Desktop installers in releases.** Make `desktop-tauri.yml` callable from the Release workflow
+  (`workflow_call`), upload its installers with a `SHA256SUMS.txt` before publishing the release,
+  and update the Homebrew tap from the Tauri DMGs, whose names the cask's `url` must match.
 - **Windows signing.** The installer is unsigned, so SmartScreen warns on first launch. Azure
-  Trusted Signing is the cheapest option electron-builder supports.
+  Trusted Signing works through Tauri's `signCommand`.
 - **Official `homebrew/cask`.** Needs the notarized app; then the tap is optional.
 - **winget.** Submit the first version by hand with
   `wingetcreate new <url of the .exe from the release>`, which opens a pull request on

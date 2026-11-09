@@ -80,18 +80,17 @@ header, `Drawer`, `Inspector` with `InspectorGroup`, `PropertyRow` and `Segmente
 are no cards: group settings in inspector groups and data in panes.
 
 In the desktop app the toolbar is the title bar: it carries the `drag-region` utility, and
-`useWindowChrome()` says where the platform's window buttons sit, from the user agent (Electron)
-or Tauri's injected globals. The Tauri shell overlays the toolbar on macOS only, where its
-initialization script makes `drag-region` drag the window; on Windows and Linux it keeps the
-native title bar. Both shells expose nothing but `window.fme` from
+`useWindowChrome()` says whether the window has macOS traffic lights, from Tauri's injected
+globals. The Tauri shell overlays the toolbar on macOS only, where its initialization script makes
+`drag-region` drag the window; on Windows and Linux it keeps the native title bar. The shell
+exposes nothing but `window.fme` from
 [`lib/desktopBridge.ts`](../../apps/web/src/lib/desktopBridge.ts).
 
-The desktop window loads the web app from a fixed origin (`fme://app` in Electron, Tauri's own
-asset protocol in Tauri), not from the bundled server (a new port each launch), so localStorage
-and `usePersistentState` survive restarts. The RPC client connects to the server through
-`window.fme.serverUrl`.
+The desktop window loads the web app from a fixed origin (Tauri's own asset protocol), not from the
+bundled server (a new port each launch), so localStorage and `usePersistentState` survive
+restarts. The RPC client connects to the server through `window.fme.serverUrl`.
 
 `useAppearance()` is System, Light or Dark. The browser keeps it in localStorage; the desktop app
-keeps it in the native shell, which applies it before the window loads and sets the window theme
-(`nativeTheme.themeSource` in Electron), so the page only ever follows `prefers-color-scheme`. The inline script
-in `index.html` applies it before first paint. The round dials stay dark in both.
+keeps it in the native shell, which applies it before the window loads and sets the window theme,
+so the page only ever follows `prefers-color-scheme`. The inline script in `index.html` applies it
+before first paint. The round dials stay dark in both.

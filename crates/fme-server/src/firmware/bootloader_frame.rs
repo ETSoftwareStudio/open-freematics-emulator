@@ -22,7 +22,7 @@ pub mod command {
     pub const ACK: u8 = 0x20;
 }
 
-/// The name the traffic log shows for a command, as the TypeScript server spells it.
+/// The name the traffic log shows for a command.
 pub const fn command_name(code: u8) -> Option<&'static str> {
     Some(match code {
         command::READ_CHIP_ID => "readChipId",

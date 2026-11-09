@@ -1,8 +1,9 @@
 # Rust services
 
-The Rust server (`crates/`) ports the Effect server one service at a time and keeps its rules.
-Read [Effect services](effect-services.md) first; this page says how each rule is written in
-Rust. Clippy lints in the workspace `Cargo.toml` enforce the mechanical parts.
+The server lives in `crates/`. It started as a port of an Effect server and keeps its design:
+features are services, transports are thin, errors are structured. The table below gives the Rust
+form of each Effect idiom the contracts and the web client still use. Clippy lints in the
+workspace `Cargo.toml` enforce the mechanical parts.
 
 ## Crates
 
@@ -14,9 +15,21 @@ Rust. Clippy lints in the workspace `Cargo.toml` enforce the mechanical parts.
   `packages/contracts`. No I/O, no async, no tokio.
 - `fme-server`: services, the RPC handler table, HTTP and the binary.
 
+## Services
+
+- A server capability is a method on the service that owns its domain (`device/`, `emulator/`,
+  `firmware/`, `obd/`, `presets/`, `traffic/`). Extend that service before adding a new one.
+- A transport handler decodes the request, calls one service method, and maps the service's
+  errors. Multi-step work, retries, persistence and rollback belong in the service, so the RPC
+  table, the binary and the Tauri shell all get them and tests need no socket.
+- Error fields stay bounded: no raw payloads, command output, credentials or arbitrary error
+  text; the exact value lives only in the `#[source]`. Construct the error where the failure
+  happens and map it to a contract error only in the transport. Don't encode one distinction
+  twice, as a variant and a single-value `reason`.
+
 ## Effect to Rust
 
-| Effect                                | Rust                                                                                                                                                                                 |
+| Effect idiom                          | Rust                                                                                                                                                                                 |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `Context.Service` + `layer`           | A struct with its dependencies as fields, built by `new` (or `spawn` for an actor). A swappable dependency is a trait (`DeviceLink`); the simulator implements the same trait.       |
 | `Schema.TaggedError`                  | One `thiserror` enum per service, variants with structured fields. `#[error]` text is fixed or built from those fields, never from the source error. Keep the source as `#[source]`. |
@@ -31,16 +44,16 @@ Rust. Clippy lints in the workspace `Cargo.toml` enforce the mechanical parts.
 
 - Transports stay thin: decode, call one service method, map errors.
 - No `unwrap`, `expect`, `panic!`, `todo!` or printing outside tests. Log with `tracing`.
-- Default to no comment, as in TypeScript.
+- Default to no comment.
 - Tests run against the simulated device and follow [Testing](testing.md): no sleeps, no wall
-  clock, no polling. Port a service's TypeScript tests with it, case for case.
+  clock, no polling.
 - Nothing may address flash below `0x08003800`, and the wire key never enters the repo.
 
 ## Transport
 
 `effect-rpc` speaks Effect RPC over a WebSocket exactly as `RpcServer.layerHttp({ protocol:
-"websocket" })` with `RpcSerialization.layerJson` does, so the unchanged web client drives either
-server. `fme-server/src/ws.rs` is the table: one service call per method, as in `ws.ts`. Contract
+"websocket" })` with `RpcSerialization.layerJson` does, so the web client's Effect `RpcClient`
+drives it unchanged. `fme-server/src/ws.rs` is the table: one service call per method. Contract
 errors implement `RpcError` in `fme-core` with `typed_errors!`. Wire rules:
 
 - A frame holds one JSON message or an array of them. Responses go out one per frame.
@@ -55,7 +68,8 @@ errors implement `RpcError` in `fme-core` with `typed_errors!`. Wire rules:
   closes the socket (1001); a `null` message closes it (1011).
 
 `http.rs` serves `/ws`, `/api/health` and the built web app (Effect's static server rules and
-MIME types) behind the loopback same-origin guard. The `fme` binary takes `bin.ts`'s flags.
+MIME types) behind the loopback same-origin guard. The `fme` binary takes `--host`, `--port`,
+`--data-dir`, `--web-root`, `--app-origin` and `--dev` (no web app; Vite serves it).
 `server::Server` binds first (port 0 picks a free one) and serves until a shutdown future
 resolves, then closes the device links and the macOS Bluetooth ports `SerialPorts` holds open
 (macOS serves those only until their first close); the Tauri app (`apps/desktop-tauri`) runs it
@@ -64,12 +78,12 @@ in-process that way.
 ## Checking
 
 `vp run rs:check` runs `cargo fmt --check`, clippy with warnings denied, and the tests.
-`vp run check` includes it.
+`vp run check` includes it. `vp run dev` builds `fme` and runs it with `--dev` next to Vite.
 
 `vp run conformance` starts the Rust server on a free port with a fresh temp data dir, drives it
 through the real Effect client on the simulated device (plus raw protocol frames and HTTP probes),
 and diffs the normalized transcript against `tools/conformance/transcript.json`, which the
-TypeScript server recorded. Only timestamps, the measured poll rate, random
+TypeScript server this one replaced recorded. Only timestamps, the measured poll rate, random
 preset ids, the temp data dir and this machine's serial ports are normalized. Error messages come
 from the contract classes on the client, so the diff covers each error's tag and fields, not its
 text. After an intended change to what goes over the wire, `vp run conformance --update` rewrites

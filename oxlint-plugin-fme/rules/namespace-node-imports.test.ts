@@ -25,7 +25,7 @@ describe("fme/namespace-node-imports", () => {
   rule.valid(
     "does not apply to non-Node packages",
     `
-      import { BrowserWindow } from "electron";
+      import { getCurrentWindow } from "@tauri-apps/api/window";
     `,
   );
 

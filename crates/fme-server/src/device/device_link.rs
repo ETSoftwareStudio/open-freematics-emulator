@@ -60,7 +60,7 @@ pub trait DeviceLink: Send + 'static {
     }
 }
 
-/// Bytes as text, one character per byte, the way the TypeScript server reads them (`latin1`).
+/// Bytes as text, one character per byte (`latin1`).
 pub fn latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|&byte| char::from(byte)).collect()
 }

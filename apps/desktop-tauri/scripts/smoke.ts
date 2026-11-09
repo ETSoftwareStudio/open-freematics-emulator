@@ -1,5 +1,5 @@
 /**
- * Smoke-tests the app `vp run desktop:tauri:dist` built for this OS and arch: it runs the server
+ * Smoke-tests the app `vp run desktop:dist` built for this OS and arch: it runs the server
  * in-process, loads the window, lets only its own origin talk to the server, and quits cleanly
  * on SIGTERM. It connects to no device and keeps its data in a temp dir.
  */

@@ -11,8 +11,8 @@ A modern control app for the [Freematics OBD-II Emulator MK2](https://freematics
 It replaces the Windows-only GUI with a local server that owns the USB serial link and a web UI
 that drives it, on macOS, Linux and Windows.
 
-Under the hood: a Node WebSocket server built from Effect services, and typed RPC contracts
-shared with a React client.
+Under the hood: a Rust server that speaks Effect RPC over a WebSocket, and typed Effect Schema
+contracts shared with a React client.
 
 > [!NOTE]
 > This is an independent, unofficial, open-source project; "Open" in the name means open source.
@@ -51,6 +51,8 @@ warns the first time you run it: click **More info → Run anyway**.
 
 ## Quick start
 
+Needs Node.js 24 and a Rust toolchain (on Linux also `libudev-dev`).
+
 ```sh
 vp install
 vp run dev          # server on :3738 + web on :5738, open http://localhost:5738
@@ -65,30 +67,28 @@ vp run start        # open http://localhost:3738
 
 ## Desktop app
 
-The desktop app (Electron) runs on macOS, Windows and Linux, x64 and arm64. It bundles the server
-and the UI; nothing else needs to be installed.
+The desktop app (Tauri) runs on macOS, Windows and Linux, x64 and arm64. It runs the server
+in-process and shows the UI in the system webview; nothing else needs to be installed.
 
 ```sh
-vp run desktop:dev            # dev server + app window, with hot reload
-vp run desktop                # build and open the app
-vp run desktop:dist           # installers for this OS into apps/desktop/release
-vp run desktop:dist --win     # or --mac, --linux; --dir for unpacked apps only
-vp run @fme/desktop#smoke     # check the packaged app for this OS
+vp run desktop:dev                # app window on the Vite dev server, with hot reload
+vp run desktop                    # build and open the app
+vp run desktop:dist               # installers for this OS into target/release/bundle
+vp run @fme/desktop-tauri#smoke   # check the packaged app for this OS
 ```
 
-| OS      | Output                                                    |
-| ------- | --------------------------------------------------------- |
-| macOS   | `.dmg` and `.zip` (ad-hoc signed; releases are notarized) |
-| Windows | NSIS installer `.exe` and a portable `.zip`               |
-| Linux   | `.AppImage` and `.deb`                                    |
+| OS      | Output                            |
+| ------- | --------------------------------- |
+| macOS   | `.app` and `.dmg` (ad-hoc signed) |
+| Windows | NSIS installer `.exe` and `.msi`  |
+| Linux   | `.deb` and `.AppImage`            |
 
-Each OS builds its own installers best; the `Desktop` GitHub workflow does that on macOS, Windows
-and Linux runners, smoke-tests each package and uploads them. From an Apple Silicon Mac, Linux
-packages also build in Docker with `electronuserland/builder:wine`. The Windows installer step
-needs Wine and fails there without Rosetta; `--win` still produces the zip.
+Each OS builds its own installers; the `Desktop (Tauri)` GitHub workflow does that on a runner
+per OS and architecture, smoke-tests each package and uploads them. Linux builds need the
+WebKitGTK development packages the workflow installs.
 
 On Linux, add yourself to the `dialout` group (`sudo usermod -aG dialout $USER`, then log in
-again) to open serial ports; port discovery uses `udevadm`, which desktop distros ship.
+again) to open serial ports; port discovery uses libudev, which desktop distros ship.
 
 Verify a connected MK2 end to end (every control set over RPC and read back from the device):
 
@@ -123,9 +123,9 @@ Importing does not flash anything. Updating the selected device still requires t
    group as Effect Schemas. ✅
 2. **Protocol core** – `packages/shared`: AT command builders, line framing, the PID catalog with
    SAE J1979 encoders, PID 0101 readiness encoding. ✅
-3. **Server** – `apps/server`: a USB serial device link, a simulated MK2 that matches the measured
-   firmware behavior, a serialized AT client with timeouts and a traffic log, and an
-   `EmulatorSession` service that owns device state. Thin WebSocket RPC on top. ✅
+3. **Server** – `crates/fme-server` (Rust): a USB serial device link, a simulated MK2 that
+   matches the measured firmware behavior, a serialized AT client with timeouts and a traffic log,
+   and an `EmulatorSession` service that owns device state. Thin WebSocket RPC on top. ✅
 4. **Web UI** – `apps/web`: connection bar, ignition and protocol, PID controls, DTCs, VIN,
    readiness monitors, raw AT console with traffic log. ✅
 5. **Verified end to end** – the app running against the real emulator over USB, every control
@@ -167,8 +167,8 @@ Importing does not flash anything. Updating the selected device still requires t
   won't set it back.
 - `ATR` restarts into the bootloader, which answers `***` with `>>>` (and ignores it otherwise).
   Updates use AES-128-ECB command frames and clear replies; the simulated device models both.
-- On macOS, `serialport`'s kqueue poller never fires for the CP210x driver; the server reads the
-  port through Node's TTY stream instead.
+- On macOS the CP210x driver never wakes kqueue, so the server reads the port with blocking reads
+  that time out in the driver (`VMIN 0`, `VTIME 1`) instead of waiting for readiness.
 - On macOS (27.2), `bluetoothd` serves a Bluetooth SPP port (`/dev/cu.OBDII`) once per pairing.
   After the first close, opens still succeed but no byte ever comes back until the adapter is
   paired again. The server holds those ports open until it stops, and says so when the first
@@ -177,27 +177,33 @@ Importing does not flash anything. Updating the selected device still requires t
 ## Layout
 
 ```
-apps/server         Node server: serial link, AT client, emulator session, WebSocket RPC, static web
+crates/fme-server   Rust server: serial link, AT client, emulator session, WebSocket RPC, static web
+crates/fme-core     Pure protocol helpers and wire types the server builds on
+crates/effect-rpc   Effect RPC's WebSocket protocol for Rust
 apps/web            React + Vite client
+apps/desktop-tauri  Tauri desktop shell that runs the server in-process
 packages/contracts  Effect Schema contracts shared by server and web
 packages/shared     Pure protocol helpers (subpath exports, no barrel)
+tools               Conformance and hardware checks, the npm launcher and its packaging
 oxlint-plugin-fme   Lint rules that enforce the Effect and testing conventions
 docs/internals      Conventions for contributors and agents (start from AGENTS.md)
 ```
 
 ## Scripts
 
-| Command              | What it does                                        |
-| -------------------- | --------------------------------------------------- |
-| `vp run dev`         | Server (watch) and Vite dev server together         |
-| `vp run desktop:dev` | The same, plus the desktop window on the dev server |
-| `vp run build`       | Builds the web app and the server bundle            |
-| `vp run start`       | Runs the built server, which also serves the web UI |
-| `vp run test`        | Runs every package's tests                          |
-| `vp run typecheck`   | Type-checks every package                           |
-| `vp run check`       | Format check, lint, typecheck and tests             |
-| `vp run npm:stage`   | Stages the npx packages in `.stage/npm`             |
-| `vp run npm:smoke`   | Installs and runs the staged packages as npx would  |
+| Command                 | What it does                                                 |
+| ----------------------- | ------------------------------------------------------------ |
+| `vp run dev`            | Rust server and Vite dev server together                     |
+| `vp run desktop:dev`    | The desktop app on the Vite dev server                       |
+| `vp run build`          | Builds the web app and the release server                    |
+| `vp run start`          | Runs the release server, which also serves the web UI        |
+| `vp run test`           | Runs every package's tests                                   |
+| `vp run typecheck`      | Type-checks every package                                    |
+| `vp run check`          | Format check, lint, typecheck and tests, TypeScript and Rust |
+| `vp run conformance`    | Checks every RPC answer against a recorded transcript        |
+| `vp run hardware:check` | Checks a connected MK2 over RPC (with `vp run dev` running)  |
+| `vp run npm:stage`      | Stages the npx packages in `.stage/npm`                      |
+| `vp run npm:smoke`      | Installs and runs the staged packages as npx would           |
 
 Releases: see [RELEASING.md](RELEASING.md).
 

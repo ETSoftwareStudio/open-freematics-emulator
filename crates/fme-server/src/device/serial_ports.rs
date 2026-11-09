@@ -338,7 +338,7 @@ type OpenedPort = (
 );
 
 /// POSIX ports are opened as plain files and read with blocking reads that time out in the
-/// driver (`VMIN 0`, `VTIME 1`), the same settings `stty` gave the TypeScript server.
+/// driver (`VMIN 0`, `VTIME 1`).
 #[cfg(unix)]
 fn open_port(path: &str) -> io::Result<OpenedPort> {
     use std::os::unix::fs::OpenOptionsExt;
