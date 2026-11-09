@@ -196,7 +196,8 @@ jobs:
             if curl -fs -o /dev/null "https://registry.npmjs.org/$1/$VERSION"; then
               echo "$1@$VERSION is already on npm"
             else
-              npm publish "npm-dist/$1-$VERSION.tgz" --access public
+              # Without `./`, npm reads `dir/file.tgz` as a GitHub repository.
+              npm publish "./npm-dist/$1-$VERSION.tgz" --access public
             fi
           }
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64; do
