@@ -36,6 +36,7 @@ nix.workspace = true
 lzma-rust2 = { workspace = true, features = ["encoder"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+tokio-tungstenite.workspace = true
 
 [lints]
 workspace = true

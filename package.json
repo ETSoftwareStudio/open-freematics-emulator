@@ -23,8 +23,7 @@
     "rs:fixtures": "node packages/shared/scripts/rust-fixtures.ts && vp fmt crates/fme-core/tests/fixtures",
     "rs:check": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
     "check": "vp fmt --check && vp lint && vp run -r typecheck && vp run -r test && vp run rs:check",
-    "hardware:check": "node tools/hardware-check.ts",
-    "conformance": "node tools/conformance/conformance.ts"
+    "hardware:check": "node tools/hardware-check.ts"
   },
   "devDependencies": {
     "@effect/language-service": "catalog:",

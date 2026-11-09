@@ -39,8 +39,8 @@ Both sides write to one `TrafficLog`.
 - `packages/contracts` – Effect Schema contracts only. Anything crossing the wire is typed here.
   `vp run rs:fixtures` encodes fixtures from them that the Rust wire types must match.
 - `packages/shared` – pure helpers with subpath exports and no barrel.
-- `tools` – scripts that drive a running server over RPC (`vp run conformance`,
-  `vp run hardware:check`), and the npm launcher with its stage and smoke scripts.
+- `tools` – a script that drives a running server over RPC (`vp run hardware:check`), and the
+  npm launcher with its stage and smoke scripts.
 - `oxlint-plugin-fme` – custom lint rules that enforce the conventions below.
 - `.repos/` – read-only reference sources (Effect v4 at the installed version). Never edit or
   import from them. Run `vp run sync:repos` if missing or after bumping `effect`.
@@ -82,7 +82,8 @@ Both sides write to one `TrafficLog`.
 - Test rules live in [Testing](docs/internals/testing.md): no sleeps, polling, or wall-clock
   deltas.
 - Server behavior changes ship with focused tests against the simulated device.
-- `vp run conformance` checks the server's answer to every RPC against a recorded transcript.
+- `crates/fme-server/tests` assert the exact wire frames of every RPC, the raw protocol cases
+  and the HTTP routes; a change to what goes over the wire updates them.
 - To run the app and verify a change in the browser or on hardware, use the
   [test-emulator-app](.agents/skills/test-emulator-app/SKILL.md) skill.
 

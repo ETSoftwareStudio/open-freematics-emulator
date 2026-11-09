@@ -187,7 +187,7 @@ apps/web            React + Vite client
 apps/desktop-tauri  Tauri desktop shell that runs the server in-process
 packages/contracts  Effect Schema contracts shared by server and web
 packages/shared     Pure protocol helpers (subpath exports, no barrel)
-tools               Conformance and hardware checks, the npm launcher and its packaging
+tools               Hardware check, the npm launcher and its packaging
 oxlint-plugin-fme   Lint rules that enforce the Effect and testing conventions
 docs/internals      Conventions for contributors and agents (start from AGENTS.md)
 ```
@@ -203,7 +203,6 @@ docs/internals      Conventions for contributors and agents (start from AGENTS.m
 | `vp run test`           | Runs every package's tests                                   |
 | `vp run typecheck`      | Type-checks every package                                    |
 | `vp run check`          | Format check, lint, typecheck and tests, TypeScript and Rust |
-| `vp run conformance`    | Checks every RPC answer against a recorded transcript        |
 | `vp run hardware:check` | Checks a connected MK2 over RPC (with `vp run dev` running)  |
 | `vp run npm:stage`      | Stages the npx packages in `.stage/npm`                      |
 | `vp run npm:smoke`      | Installs and runs the staged packages as npx would           |

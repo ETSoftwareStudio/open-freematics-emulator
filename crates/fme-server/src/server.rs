@@ -50,7 +50,15 @@ pub enum ServerError {
 impl Services {
     /// Every service over `data_dir`, with the simulated MK2 alongside the real ports.
     pub async fn new(data_dir: &Path, http: Arc<dyn HttpClient>) -> Self {
-        let serial_ports = SerialPorts::default();
+        Self::with_serial_ports(data_dir, http, SerialPorts::default()).await
+    }
+
+    /// [`Services::new`] over the given serial ports, which tests replace with a fake system.
+    pub async fn with_serial_ports(
+        data_dir: &Path,
+        http: Arc<dyn HttpClient>,
+        serial_ports: SerialPorts,
+    ) -> Self {
         let simulated = SimulatedDevice::default();
         let traffic = TrafficLog::new();
         let session =

@@ -120,10 +120,10 @@ payload, decoded with serde. `Schema.Void` payloads and successes are `()`.
 
 - This crate's tests drive the protocol over a real loopback WebSocket with raw frames, covering
   each rule above.
-- It was extracted from a server whose conformance suite drove a TypeScript server
-  (`RpcServer.layerHttp` with `RpcSerialization.layerJson`) with the real Effect `RpcClient` and
-  with raw protocol frames, recorded the transcript, and checks the Rust server built on this
-  crate against it: 131 checks, all identical, on `effect` 4.0.5.
+- It was extracted from a server that replaced a TypeScript one (`RpcServer.layerHttp` with
+  `RpcSerialization.layerJson`). A transcript of that server answering the real Effect
+  `RpcClient` and raw protocol frames matched the Rust server in all 131 checks on `effect`
+  4.0.5, and that server's tests keep asserting those frames.
 - The protocol source of truth is `effect/src/rpc/RpcServer.ts`, `RpcMessage.ts` and
   `RpcSerialization.ts` in Effect's repository.
 
