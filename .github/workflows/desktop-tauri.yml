@@ -27,7 +27,7 @@ on:
       APPLE_API_ISSUER:
         required: false
   push:
-    branches: [feat/rust-tauri]
+    branches: [main]
     paths:
       - "apps/desktop-tauri/**"
       - "apps/web/**"
