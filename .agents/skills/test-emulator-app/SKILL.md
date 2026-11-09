@@ -58,7 +58,7 @@ points it at a scratch data dir. It runs the server in-process, so quitting it f
 ## Verify against hardware without a browser
 
 With the dev server connected to nothing, run `vp run hardware:check` (or
-`node apps/server/scripts/hardware-check.ts --port /dev/cu.X`). It drives every control over the
+`node tools/hardware-check.ts --port /dev/cu.X`). It drives every control over the
 WebSocket RPC, reads each value back from the device, restores the state, and exits non-zero on
 any mismatch.
 

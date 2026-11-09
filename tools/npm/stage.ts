@@ -24,9 +24,8 @@ const isTarget = (target: string): target is keyof typeof platforms =>
 const packageName = (platform: { os: string; cpu: string }) =>
   `${name}-${platform.os}-${platform.cpu}`;
 
-const root = NodePath.resolve(import.meta.dirname, "..");
-const repo = NodePath.resolve(root, "../..");
-const stage = NodePath.join(root, ".stage/npm");
+const repo = NodePath.resolve(import.meta.dirname, "../..");
+const stage = NodePath.join(repo, ".stage/npm");
 
 const { values } = NodeUtil.parseArgs({ options: { target: { type: "string" } } });
 const target =
@@ -40,8 +39,9 @@ if (target === undefined || !isTarget(target)) {
 }
 
 const readJson = (path: string) => JSON.parse(NodeFS.readFileSync(path, "utf8"));
-const desktop = readJson(NodePath.join(repo, "apps/desktop/package.json")) as {
-  version: string;
+const desktop = NodePath.join(repo, "apps/desktop-tauri");
+const { version } = readJson(NodePath.join(desktop, "package.json")) as { version: string };
+const { productName } = readJson(NodePath.join(desktop, "src-tauri/tauri.conf.json")) as {
   productName: string;
 };
 const web = NodePath.join(repo, "apps/web/dist");
@@ -61,7 +61,7 @@ const binary = NodePath.join(repo, "target", target, "release", exe);
 
 const url = "https://github.com/ETSoftwareStudio/open-freematics-emulator";
 const common = {
-  version: desktop.version,
+  version,
   homepage: `${url}#readme`,
   bugs: `${url}/issues`,
   // npm provenance checks this against the repository that built the package.
@@ -89,17 +89,17 @@ writePackage(
   {
     name,
     ...common,
-    description: `${desktop.productName}: open-source app for the Freematics OBD-II Emulator MK2. Unofficial.`,
+    description: `${productName}: open-source app for the Freematics OBD-II Emulator MK2. Unofficial.`,
     keywords: ["freematics", "freematics-mk2", "obd2", "obd-ii", "obd-emulator", "elm327"],
     type: "module",
     bin: { [name]: "cli.mjs" },
     engines: { node: ">=20" },
     optionalDependencies: Object.fromEntries(
-      Object.values(platforms).map((each) => [packageName(each), desktop.version]),
+      Object.values(platforms).map((each) => [packageName(each), version]),
     ),
   },
   {
-    "cli.mjs": NodePath.join(root, "npm/cli.mjs"),
+    "cli.mjs": NodePath.join(import.meta.dirname, "cli.mjs"),
     web,
     "README.md": NodePath.join(repo, "README.md"),
     LICENSE: NodePath.join(repo, "LICENSE"),
@@ -113,7 +113,7 @@ writePackage(
   {
     name: packageName(platform),
     ...common,
-    description: `The ${desktop.productName} server for ${platform.os}-${platform.cpu}. Install ${name} instead.`,
+    description: `The ${productName} server for ${platform.os}-${platform.cpu}. Install ${name} instead.`,
     os: [platform.os],
     cpu: [platform.cpu],
     ...("libc" in platform ? { libc: [platform.libc] } : {}),
@@ -128,4 +128,4 @@ NodeFS.writeFileSync(
 );
 NodeFS.chmodSync(NodePath.join(platformDirectory, "bin", exe), 0o755);
 
-console.log(`Staged ${name}@${desktop.version} and ${packageName(platform)} in ${stage}`);
+console.log(`Staged ${name}@${version} and ${packageName(platform)} in ${stage}`);

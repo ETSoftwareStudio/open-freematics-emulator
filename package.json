@@ -16,8 +16,8 @@
     "desktop:tauri": "vp run --filter @fme/desktop-tauri start",
     "desktop:tauri:dev": "vp run --filter @fme/desktop-tauri dev",
     "desktop:tauri:dist": "vp run --filter @fme/desktop-tauri dist",
-    "npm:stage": "vp run --filter @fme/web build && node apps/server/scripts/stage-npm.ts",
-    "npm:smoke": "node apps/server/scripts/smoke-npm.ts",
+    "npm:stage": "vp run --filter @fme/web build && node tools/npm/stage.ts",
+    "npm:smoke": "node tools/npm/smoke.ts",
     "typecheck": "vp run -r typecheck",
     "test": "vp run -r test",
     "lint": "vp lint",
@@ -27,7 +27,7 @@
     "rs:fixtures": "node packages/shared/scripts/rust-fixtures.ts && vp fmt crates/fme-core/tests/fixtures",
     "rs:check": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
     "check": "vp fmt --check && vp lint && vp run -r typecheck && vp run -r test && vp run rs:check",
-    "hardware:check": "node apps/server/scripts/hardware-check.ts",
+    "hardware:check": "node tools/hardware-check.ts",
     "conformance": "node tools/conformance/conformance.ts"
   },
   "devDependencies": {

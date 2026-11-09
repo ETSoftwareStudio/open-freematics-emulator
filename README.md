@@ -196,7 +196,7 @@ docs/internals      Conventions for contributors and agents (start from AGENTS.m
 | `vp run test`        | Runs every package's tests                          |
 | `vp run typecheck`   | Type-checks every package                           |
 | `vp run check`       | Format check, lint, typecheck and tests             |
-| `vp run npm:stage`   | Stages the npx packages in `apps/server/.stage/npm` |
+| `vp run npm:stage`   | Stages the npx packages in `.stage/npm`             |
 | `vp run npm:smoke`   | Installs and runs the staged packages as npx would  |
 
 Releases: see [RELEASING.md](RELEASING.md).

@@ -13,7 +13,7 @@ import * as NodePath from "node:path";
 
 const name = "open-freematics-emulator";
 const platformPackage = `${name}-${process.platform}-${process.arch}`;
-const stage = NodePath.resolve(import.meta.dirname, "../.stage/npm");
+const stage = NodePath.resolve(import.meta.dirname, "../../.stage/npm");
 const scratch = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fme-npm-smoke-"));
 const npm = (args: Array<string>, cwd: string) =>
   NodeChildProcess.execFileSync("npm", args, {

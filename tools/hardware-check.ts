@@ -1,7 +1,7 @@
 /**
  * Drives every control over the WebSocket RPC against a real MK2, reads each value back with
  * `ATGET`, and restores the state. `--reader <path|host:port>` also checks an attached adapter.
- * Usage: node apps/server/scripts/hardware-check.ts [--url ws://…/ws] [--port …] [--reader …]
+ * Usage: node tools/hardware-check.ts [--url ws://…/ws] [--port …] [--reader …]
  */
 // @effect-diagnostics preferSchemaOverJson:off - prints arbitrary payloads for a human.
 import * as NodeUtil from "node:util";

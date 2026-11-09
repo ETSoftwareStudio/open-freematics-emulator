@@ -112,9 +112,9 @@ jobs:
         shell: bash
         run: |
           mkdir npm-dist
-          npm pack "./apps/server/.stage/npm/open-freematics-emulator-${{ matrix.npm }}" --pack-destination npm-dist
+          npm pack "./.stage/npm/open-freematics-emulator-${{ matrix.npm }}" --pack-destination npm-dist
           if [ "${{ matrix.target }}" = x86_64-unknown-linux-gnu ]; then
-            npm pack ./apps/server/.stage/npm/open-freematics-emulator --pack-destination npm-dist
+            npm pack ./.stage/npm/open-freematics-emulator --pack-destination npm-dist
           fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
