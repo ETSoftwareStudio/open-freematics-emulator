@@ -7,6 +7,25 @@ on:
         description: Sign and notarize the macOS app (needs the signing secrets)
         type: boolean
         default: false
+  # The Release workflow calls this one to build the installers it publishes.
+  workflow_call:
+    inputs:
+      sign:
+        type: boolean
+        default: false
+    secrets:
+      MAC_CERTIFICATE:
+        required: false
+      MAC_CERTIFICATE_PASSWORD:
+        required: false
+      MAC_SIGNING_IDENTITY:
+        required: false
+      APPLE_API_KEY_P8:
+        required: false
+      APPLE_API_KEY_ID:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
   push:
     branches: [feat/rust-tauri]
     paths:
@@ -40,13 +59,34 @@ jobs:
       matrix:
         # Each OS and arch builds on its own runner, except macOS x64, which cross-compiles cleanly.
         # AppImage and deb need a native Linux runner; 22.04 keeps the AppImage's glibc floor low.
+        # `platform` names the installers: open-freematics-emulator-<version>-<platform>.<ext>.
         include:
-          - { runner: macos-latest, target: aarch64-apple-darwin, smoke: true }
-          - { runner: macos-latest, target: x86_64-apple-darwin, smoke: false }
-          - { runner: windows-latest, target: x86_64-pc-windows-msvc, smoke: true }
-          - { runner: windows-11-arm, target: aarch64-pc-windows-msvc, smoke: true }
-          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, smoke: true }
-          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, smoke: true }
+          - { runner: macos-latest, target: aarch64-apple-darwin, platform: mac-arm64, smoke: true }
+          - { runner: macos-latest, target: x86_64-apple-darwin, platform: mac-x64, smoke: false }
+          - {
+              runner: windows-latest,
+              target: x86_64-pc-windows-msvc,
+              platform: win-x64,
+              smoke: true,
+            }
+          - {
+              runner: windows-11-arm,
+              target: aarch64-pc-windows-msvc,
+              platform: win-arm64,
+              smoke: true,
+            }
+          - {
+              runner: ubuntu-22.04,
+              target: x86_64-unknown-linux-gnu,
+              platform: linux-x64,
+              smoke: true,
+            }
+          - {
+              runner: ubuntu-22.04-arm,
+              target: aarch64-unknown-linux-gnu,
+              platform: linux-arm64,
+              smoke: true,
+            }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -64,7 +104,9 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libudev-dev patchelf xvfb
       - run: rustup target add ${{ matrix.target }}
+      # Signed builds skip the cache, so what gets signed builds from the lockfile alone.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: ${{ !inputs.sign }}
         with:
           key: ${{ matrix.target }}
       - run: pnpm install --frozen-lockfile
@@ -102,13 +144,32 @@ jobs:
       - name: Smoke-test the packaged app
         if: matrix.smoke && runner.os == 'Linux'
         run: xvfb-run -a pnpm exec vp run @fme/desktop-tauri#smoke --target ${{ matrix.target }}
+      # Tauri names bundles after the product name, spaces and all, which GitHub turns into dots on
+      # release assets; the release, the Homebrew cask and download links use these names instead.
+      - name: Collect the installers
+        shell: bash
+        env:
+          BUNDLE: target/${{ matrix.target }}/release/bundle
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          version=$(node -p "require('./apps/desktop-tauri/package.json').version")
+          mkdir installers
+          collect() {
+            local files=("$BUNDLE/$1"/*."$2")
+            if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
+              echo "Expected one .$2 in $BUNDLE/$1" >&2
+              exit 1
+            fi
+            cp "${files[0]}" "installers/open-freematics-emulator-$version-$PLATFORM$3.$2"
+          }
+          case "$RUNNER_OS" in
+            macOS) collect dmg dmg ;;
+            Windows) collect nsis exe -setup && collect msi msi ;;
+            Linux) collect deb deb && collect appimage AppImage ;;
+          esac
+          ls -l installers
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-tauri-${{ matrix.target }}
-          path: |
-            target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-            target/${{ matrix.target }}/release/bundle/nsis/*.exe
-            target/${{ matrix.target }}/release/bundle/msi/*.msi
-            target/${{ matrix.target }}/release/bundle/deb/*.deb
-            target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+          path: installers/*
           if-no-files-found: error

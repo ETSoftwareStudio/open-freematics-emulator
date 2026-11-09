@@ -1,10 +1,10 @@
 # Releasing
 
-Merging the release PR publishes the npm packages behind `npx open-freematics-emulator` and a
-GitHub Release with the changelog. The [Release workflow](.github/workflows/release.yml) does the
-work; CI runs on every push and pull request. The desktop installers aren't released yet: the
-[Desktop (Tauri) workflow](.github/workflows/desktop-tauri.yml) builds and smoke-tests them, but
-nothing publishes them, and the Homebrew cask waits on them.
+Merging the release PR publishes a GitHub Release with the changelog and the desktop installers,
+the npm packages behind `npx open-freematics-emulator`, and the Homebrew cask. The
+[Release workflow](.github/workflows/release.yml) does the work; it builds the installers by
+calling the [Desktop (Tauri) workflow](.github/workflows/desktop-tauri.yml) with signing on. CI
+runs on every push and pull request.
 
 ## Every release
 
@@ -15,17 +15,34 @@ PR title as the commit, so the **PR title** check holds titles to the same forma
 
 1. Merge work into `main` as usual. release-please keeps one PR open,
    `chore(main): release X.Y.Z`, with the next version in `apps/desktop-tauri/package.json` (it
-   versions the desktop app and the npm packages) and the new `CHANGELOG.md` entry. CI runs on it
-   too.
+   versions the desktop app, through `tauri.conf.json`, and the npm packages) and the new
+   `CHANGELOG.md` entry. CI runs on it too.
 2. When you want to ship, merge that PR.
 3. Watch **Actions → Release**. release-please creates the tag and a draft GitHub Release with the
-   changelog as notes. The workflow then runs the checks, builds the `fme` server for the six npm
-   platforms and smoke-tests the npm packages, publishes the release, and publishes to npm.
+   changelog as notes. The workflow then runs the checks and, in parallel:
+   - builds, signs (macOS) and smoke-tests the desktop app on the six targets, and
+   - builds the `fme` server for the six npm platforms and smoke-tests the npm packages.
+
+   Once both are done it uploads the installers with a `SHA256SUMS.txt` to the draft and publishes
+   it, then publishes to npm and updates the Homebrew tap.
+
+Each release carries these installers, named `open-freematics-emulator-<version>-<platform>`:
+
+| Platform         | Files                                       |
+| ---------------- | ------------------------------------------- |
+| macOS arm64, x64 | `mac-arm64.dmg`, `mac-x64.dmg`              |
+| Windows x64      | `win-x64-setup.exe` (NSIS), `win-x64.msi`   |
+| Windows arm64    | `win-arm64-setup.exe`, `win-arm64.msi`      |
+| Linux x64, arm64 | `linux-<arch>.deb`, `linux-<arch>.AppImage` |
+
+The Desktop (Tauri) workflow renames Tauri's bundles (`Open Freematics Emulator_<version>_…`) to
+these names, because GitHub turns the spaces into dots on release assets. The Homebrew cask's `url`
+uses the macOS names.
 
 To force a version, add a commit to `main` with `Release-As: 1.2.0` in its body.
 
 If a job fails after the release PR is merged, fix the cause and use **Re-run failed jobs** on that
-run. The release stays a draft until every npm package is built and smoke-tested.
+run. The release stays a draft until every installer and npm package is built and smoke-tested.
 
 ## One-time setup
 
@@ -77,8 +94,9 @@ package; `--target <rust triple>` stages another one if its Rust target is insta
 3. In this repo, add the Actions secret `HOMEBREW_TAP_TOKEN` with that token and the Actions
    variable `HOMEBREW_TAP` set to `ETSoftwareStudio/homebrew-tap`.
 
-No workflow updates the tap until the Release workflow publishes the Tauri DMGs again (see
-[Later](#later)). Users install with:
+The Release workflow writes the cask from the template with the version and the two DMGs'
+checksums and pushes it to the tap; without the `HOMEBREW_TAP` variable it skips that. Users
+install with:
 
 ```sh
 brew install --cask etsoftwarestudio/tap/open-freematics-emulator
@@ -89,8 +107,10 @@ The cask template is [packaging/homebrew](packaging/homebrew/open-freematics-emu
 ### macOS signing and notarization
 
 The Desktop (Tauri) workflow signs the Mac app with a Developer ID and notarizes it when it runs
-with `sign` and these secrets exist, so it opens without a Gatekeeper warning. Without them the app
-is ad-hoc signed and users must click **Open Anyway** in System Settings → Privacy & Security.
+with `sign` (the Release workflow always sets it) and these secrets exist, so it opens without a
+Gatekeeper warning. Without them the app is ad-hoc signed and users must click **Open Anyway** in
+System Settings → Privacy & Security. Only release and manually dispatched runs see the secrets:
+push and pull request builds are never signed. Signed builds skip the Rust cache.
 
 1. **Developer ID Application certificate.** Creating one needs the Account Holder role on the
    team whose name users should see (ET Software Studio Inc.). In Xcode → Settings → Accounts →
@@ -122,9 +142,6 @@ Delete the `.p12` and `.p8` from your disk once they are stored as secrets.
 
 ## Later
 
-- **Desktop installers in releases.** Make `desktop-tauri.yml` callable from the Release workflow
-  (`workflow_call`), upload its installers with a `SHA256SUMS.txt` before publishing the release,
-  and update the Homebrew tap from the Tauri DMGs, whose names the cask's `url` must match.
 - **Windows signing.** The installer is unsigned, so SmartScreen warns on first launch. Azure
   Trusted Signing works through Tauri's `signCommand`.
 - **Official `homebrew/cask`.** Needs the notarized app; then the tap is optional.

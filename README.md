@@ -40,8 +40,10 @@ the way a real OBD-II reader would, and flags any value that doesn't match.
 ## Install
 
 - **macOS:** `brew install --cask etsoftwarestudio/tap/open-freematics-emulator`
-- **macOS, Windows, Linux:** installers on the
-  [Releases page](https://github.com/ETSoftwareStudio/open-freematics-emulator/releases)
+- **Desktop installers** for x64 and arm64 on the
+  [Releases page](https://github.com/ETSoftwareStudio/open-freematics-emulator/releases/latest):
+  `.dmg` for macOS, the `-setup.exe` or `.msi` for Windows, and `.deb` or `.AppImage` for Linux.
+  `SHA256SUMS.txt` lists their checksums.
 - **macOS, Windows, Linux (x64 or arm64) with Node.js 20 or later:** `npx open-freematics-emulator`
   starts the app and opens it in your browser. Linux needs glibc and `libudev1`, which desktop
   distros ship.
@@ -84,7 +86,8 @@ vp run @fme/desktop-tauri#smoke   # check the packaged app for this OS
 | Linux   | `.deb` and `.AppImage`            |
 
 Each OS builds its own installers; the `Desktop (Tauri)` GitHub workflow does that on a runner
-per OS and architecture, smoke-tests each package and uploads them. Linux builds need the
+per OS and architecture, smoke-tests each package and uploads them, and each release publishes
+them (see [RELEASING.md](RELEASING.md)). Linux builds need the
 WebKitGTK development packages the workflow installs.
 
 On Linux, add yourself to the `dialout` group (`sudo usermod -aG dialout $USER`, then log in
