@@ -22,11 +22,29 @@ const tasks: ReadonlyArray<Task> = [
   { name: "web", cwd: "apps/web", command: "vp", args: ["run", "dev"] },
 ];
 
+// Each task runs in its own process group so a stop reaches what it starts too (`vp` runs Vite).
+const isWindows = process.platform === "win32";
+const FORCE_AFTER_MS = 5000;
+
+const signalTree = (child: NodeChildProcess.ChildProcess, signal: NodeJS.Signals) => {
+  if (child.pid === undefined) return;
+  if (isWindows) {
+    NodeChildProcess.spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
+    return;
+  }
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // The whole group has already exited.
+  }
+};
+
 const spawnTask = (task: Task) => {
   const child = NodeChildProcess.spawn(task.command, task.args, {
     cwd: task.cwd,
     env: { ...process.env, FME_SERVER_PORT: serverPort, PORT: webPort },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: !isWindows,
   });
   const prefix = `[${task.name}] `;
   const forward = (stream: NodeJS.WritableStream) => (chunk: Buffer) =>
@@ -43,17 +61,27 @@ const spawnTask = (task: Task) => {
     process.stdout.write(`${prefix}exited with ${code}\n`);
     shutdown(code ?? 0);
   });
-  return child;
+  // "close" waits for the pipes too, which the task's own children hold until they exit.
+  const closed = new Promise<void>((resolve) => child.on("close", () => resolve()));
+  return { child, closed };
 };
 
-const children = tasks.map(spawnTask);
+const running = tasks.map(spawnTask);
 
 let stopping = false;
 function shutdown(code: number) {
   if (stopping) return;
   stopping = true;
-  for (const child of children) child.kill("SIGTERM");
   process.exitCode = code;
+  for (const { child } of running) signalTree(child, "SIGTERM");
+  const force = setTimeout(() => {
+    for (const { child } of running) signalTree(child, "SIGKILL");
+    setTimeout(() => process.exit(), 1000).unref();
+  }, FORCE_AFTER_MS);
+  void Promise.all(running.map(({ closed }) => closed)).then(() => {
+    clearTimeout(force);
+    process.exit();
+  });
 }
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
