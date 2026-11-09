@@ -1,10 +1,9 @@
 /**
- * Drives a server through the real Effect RPC client, as the web app does, on the simulated
- * device, and records a normalized transcript of every result. With no `--url` it starts the
- * TypeScript and the Rust servers on free ports with fresh data dirs, drives both, and diffs.
- * Usage: node apps/server/scripts/conformance.ts [--url http://127.0.0.1:3738 --data-dir …]
+ * Drives the Rust server through the real Effect RPC client on the simulated device and diffs the
+ * normalized transcript against `transcript.json`, which the TypeScript server recorded.
+ * Usage: node tools/conformance/conformance.ts [--update | --url http://127.0.0.1:3738 --data-dir …]
  */
-// @effect-diagnostics nodeBuiltinImport:off - starts both servers and probes them over raw HTTP.
+// @effect-diagnostics nodeBuiltinImport:off - starts the server and probes it over raw HTTP.
 // @effect-diagnostics preferSchemaOverJson:off - records arbitrary payloads for a diff.
 // @effect-diagnostics globalTimers:off - plain Node orchestration bounds each wait with a timer.
 import * as NodeChildProcess from "node:child_process";
@@ -37,9 +36,10 @@ import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import { RpcClient, RpcSerialization } from "effect/rpc";
 import * as Socket from "effect/socket/Socket";
-import { APPLICATION_BASE, FLASH_BASE } from "../src/firmware/flashPlan.ts";
-
-const ROOT = NodePath.resolve(import.meta.dirname, "../../..");
+const ROOT = NodePath.resolve(import.meta.dirname, "../..");
+const TRANSCRIPT = NodePath.join(import.meta.dirname, "transcript.json");
+const FLASH_BASE = 0x08000000;
+const APPLICATION_BASE = 0x08003800;
 const WAIT = "15 seconds";
 
 interface Entry {
@@ -464,7 +464,8 @@ const drive = Effect.fn("Conformance.drive")(function* (baseUrl: string, dataDir
     "initial firmware library",
     head(client(WS_METHODS.subscribeFirmwareLibrary, undefined)),
   );
-  yield* record("list ports", client(WS_METHODS.listPorts, undefined));
+  // The client decodes each port, so only that the list decodes is kept, not this machine's ports.
+  yield* record("list ports", client(WS_METHODS.listPorts, undefined).pipe(Effect.as("<ports>")));
 
   yield* record("sendRaw while disconnected", client(WS_METHODS.sendRaw, { command: "ATI" }));
   yield* record(
@@ -781,7 +782,7 @@ interface StartedServer {
   readonly stop: () => void;
 }
 
-const startServer = (name: string, command: string, args: ReadonlyArray<string>) =>
+const startServer = (command: string, args: ReadonlyArray<string>) =>
   new Promise<StartedServer>((resolve, reject) => {
     const child = NodeChildProcess.spawn(command, args, {
       cwd: ROOT,
@@ -792,7 +793,7 @@ const startServer = (name: string, command: string, args: ReadonlyArray<string>)
     const stop = () => child.kill("SIGTERM");
     const timer = setTimeout(() => {
       stop();
-      reject(new Error(`${name} did not start:\n${output.join("")}`));
+      reject(new Error(`The server did not start:\n${output.join("")}`));
     }, 60_000);
     const collect = (chunk: Buffer) => {
       output.push(chunk.toString());
@@ -806,7 +807,7 @@ const startServer = (name: string, command: string, args: ReadonlyArray<string>)
     child.stderr.on("data", collect);
     child.once("exit", (code) => {
       clearTimeout(timer);
-      reject(new Error(`${name} exited with ${code}:\n${output.join("")}`));
+      reject(new Error(`The server exited with ${code}:\n${output.join("")}`));
     });
   });
 
@@ -816,42 +817,26 @@ const writeWebRoot = (dir: string) => {
   NodeFS.writeFileSync(NodePath.join(dir, "assets", "app.js"), "export {};\n");
 };
 
-const conformance = async (
-  name: string,
-  command: string,
-  args: ReadonlyArray<string>,
-  work: string,
-) => {
-  const dataDir = NodePath.join(work, `${name}-data`);
-  const server = await startServer(name, command, [
-    ...args,
-    "--port",
-    "0",
-    "--data-dir",
-    dataDir,
-    "--web-root",
-    NodePath.join(work, "web"),
-  ]);
-  try {
-    return await runDrive(server.url, dataDir);
-  } finally {
-    server.stop();
-  }
-};
+const { values } = NodeUtil.parseArgs({
+  options: {
+    url: { type: "string" },
+    "data-dir": { type: "string" },
+    update: { type: "boolean", default: false },
+  },
+});
 
-const diff = (left: ReadonlyArray<Entry>, right: ReadonlyArray<Entry>) => {
+const recordedEntries = (): ReadonlyArray<Entry> =>
+  NodeFS.existsSync(TRANSCRIPT) ? JSON.parse(NodeFS.readFileSync(TRANSCRIPT, "utf8")) : [];
+
+const diff = (recorded: ReadonlyArray<Entry>, actual: ReadonlyArray<Entry>) => {
   const differences: Array<string> = [];
-  for (let i = 0; i < Math.max(left.length, right.length); i++) {
-    const a = JSON.stringify(left[i], null, 2);
-    const b = JSON.stringify(right[i], null, 2);
-    if (a !== b) differences.push(`--- typescript\n${a}\n+++ rust\n${b}`);
+  for (let i = 0; i < Math.max(recorded.length, actual.length); i++) {
+    const a = JSON.stringify(recorded[i], null, 2);
+    const b = JSON.stringify(actual[i], null, 2);
+    if (a !== b) differences.push(`--- recorded\n${a}\n+++ rust\n${b}`);
   }
   return differences;
 };
-
-const { values } = NodeUtil.parseArgs({
-  options: { url: { type: "string" }, "data-dir": { type: "string" } },
-});
 
 if (values.url !== undefined) {
   const transcript = await runDrive(values.url, values["data-dir"] ?? "");
@@ -863,23 +848,33 @@ if (values.url !== undefined) {
   });
   if (build.status !== 0) process.exit(build.status ?? 1);
   const work = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fme-conformance-"));
-  writeWebRoot(NodePath.join(work, "web"));
-  const typescript = await conformance(
-    "typescript",
-    process.execPath,
-    [NodePath.join(ROOT, "apps/server/src/bin.ts")],
-    work,
-  );
-  const rust = await conformance("rust", NodePath.join(ROOT, "target/debug/fme"), [], work);
-  NodeFS.writeFileSync(NodePath.join(work, "typescript.json"), JSON.stringify(typescript, null, 2));
-  NodeFS.writeFileSync(NodePath.join(work, "rust.json"), JSON.stringify(rust, null, 2));
-  const differences = diff(typescript, rust);
-  process.stdout.write(`Transcripts: ${work}/{typescript,rust}.json\n`);
-  if (differences.length > 0) {
-    process.stdout.write(`${differences.join("\n\n")}\n\n`);
-    process.stdout.write(`${differences.length} of ${typescript.length} checks differ.\n`);
-    process.exitCode = 1;
+  const web = NodePath.join(work, "web");
+  writeWebRoot(web);
+  const dataDir = NodePath.join(work, "data");
+  const server = await startServer(NodePath.join(ROOT, "target/debug/fme"), [
+    "--port",
+    "0",
+    "--data-dir",
+    dataDir,
+    "--web-root",
+    web,
+  ]);
+  const rust = await runDrive(server.url, dataDir).finally(server.stop);
+  const transcript = `${JSON.stringify(rust, null, 2)}\n`;
+  if (values.update) {
+    NodeFS.writeFileSync(TRANSCRIPT, transcript);
+    process.stdout.write(`Recorded ${rust.length} checks in ${TRANSCRIPT}\n`);
   } else {
-    process.stdout.write(`All ${typescript.length} checks match.\n`);
+    const recorded = recordedEntries();
+    NodeFS.writeFileSync(NodePath.join(work, "rust.json"), transcript);
+    const differences = diff(recorded, rust);
+    process.stdout.write(`Transcript: ${work}/rust.json\n`);
+    if (differences.length > 0) {
+      process.stdout.write(`${differences.join("\n\n")}\n\n`);
+      process.stdout.write(`${differences.length} of ${recorded.length} checks differ.\n`);
+      process.exitCode = 1;
+    } else {
+      process.stdout.write(`All ${recorded.length} checks match.\n`);
+    }
   }
 }

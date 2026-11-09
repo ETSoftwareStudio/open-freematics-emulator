@@ -2,6 +2,7 @@ packages:
   - apps/*
   - packages/*
   - oxlint-plugin-fme
+  - tools
 
 allowBuilds:
   "@serialport/bindings-cpp": true

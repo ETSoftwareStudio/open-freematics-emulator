@@ -28,7 +28,7 @@
     "rs:check": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
     "check": "vp fmt --check && vp lint && vp run -r typecheck && vp run -r test && vp run rs:check",
     "hardware:check": "node apps/server/scripts/hardware-check.ts",
-    "conformance": "node apps/server/scripts/conformance.ts"
+    "conformance": "node tools/conformance/conformance.ts"
   },
   "devDependencies": {
     "@effect/language-service": "catalog:",

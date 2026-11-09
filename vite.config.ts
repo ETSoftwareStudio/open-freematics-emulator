@@ -7,8 +7,16 @@ export default defineConfig({
   },
   fmt: {
     printWidth: 100,
-    // release-please writes CHANGELOG.md in its own style on every release PR.
-    ignorePatterns: [".repos/**", "**/dist/**", "pnpm-lock.yaml", "patches/**", "CHANGELOG.md"],
+    // release-please writes CHANGELOG.md in its own style on every release PR, and
+    // `vp run conformance --update` writes the transcript as JSON.stringify does.
+    ignorePatterns: [
+      ".repos/**",
+      "**/dist/**",
+      "pnpm-lock.yaml",
+      "patches/**",
+      "CHANGELOG.md",
+      "tools/conformance/transcript.json",
+    ],
   },
   lint: {
     ignorePatterns: [".repos/**", "**/dist/**", "node_modules", "**/routeTree.gen.ts"],

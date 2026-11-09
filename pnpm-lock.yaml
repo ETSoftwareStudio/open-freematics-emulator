@@ -395,6 +395,19 @@ importers:
         specifier: 1.4.0
         version: 1.4.0(@tsc-rs/typescript@0.8.0)(@types/node@24.12.4)(@vitest/ui@5.0.5)(jiti@2.7.0)
 
+  tools:
+    dependencies:
+      '@fme/contracts':
+        specifier: workspace:*
+        version: link:../packages/contracts
+      effect:
+        specifier: 4.0.5
+        version: 4.0.5
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.12.4
+
 packages:
 
   7z-wasm@1.2.0:

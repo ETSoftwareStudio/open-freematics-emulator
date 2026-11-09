@@ -66,7 +66,11 @@ in-process that way.
 `vp run rs:check` runs `cargo fmt --check`, clippy with warnings denied, and the tests.
 `vp run check` includes it.
 
-`vp run conformance` starts both servers on free ports with fresh temp data dirs, drives each
+`vp run conformance` starts the Rust server on a free port with a fresh temp data dir, drives it
 through the real Effect client on the simulated device (plus raw protocol frames and HTTP probes),
-and diffs the normalized transcripts. Only timestamps, the measured poll rate, random preset ids
-and the temp data dir are normalized. `vp run dev:rs` is `vp run dev` with the Rust server.
+and diffs the normalized transcript against `tools/conformance/transcript.json`, which the
+TypeScript server recorded. Only timestamps, the measured poll rate, random
+preset ids, the temp data dir and this machine's serial ports are normalized. Error messages come
+from the contract classes on the client, so the diff covers each error's tag and fields, not its
+text. After an intended change to what goes over the wire, `vp run conformance --update` rewrites
+the transcript; review its diff like code.
