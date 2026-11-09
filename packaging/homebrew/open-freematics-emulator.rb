@@ -18,8 +18,9 @@ cask "open-freematics-emulator" do
 
   zap trash: [
     "~/Library/Application Support/Open Freematics Emulator",
-    "~/Library/Logs/Open Freematics Emulator",
+    "~/Library/Caches/studio.etsoftware.open-freematics-emulator",
     "~/Library/Preferences/studio.etsoftware.open-freematics-emulator.plist",
     "~/Library/Saved Application State/studio.etsoftware.open-freematics-emulator.savedState",
+    "~/Library/WebKit/studio.etsoftware.open-freematics-emulator",
   ]
 end

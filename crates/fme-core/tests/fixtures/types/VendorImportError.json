@@ -1,0 +1,14 @@
+[
+  {
+    "_tag": "VendorImportError",
+    "reason": "noKey"
+  },
+  {
+    "_tag": "VendorImportError",
+    "reason": "duplicateName"
+  },
+  {
+    "_tag": "VendorImportError",
+    "reason": "persist"
+  }
+]

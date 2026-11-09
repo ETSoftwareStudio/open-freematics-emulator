@@ -1,0 +1,18 @@
+[
+  {
+    "_tag": "PresetPersistError",
+    "path": "/data/presets.json",
+    "cause": {
+      "name": "Error",
+      "message": "EACCES"
+    }
+  },
+  {
+    "_tag": "PresetPersistError",
+    "path": "/data/presets.json",
+    "cause": {
+      "code": "ENOSPC",
+      "errno": -28
+    }
+  }
+]

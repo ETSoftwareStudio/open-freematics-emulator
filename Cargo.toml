@@ -1,0 +1,73 @@
+[workspace]
+resolver = "3"
+members = ["apps/desktop-tauri/src-tauri", "crates/*"]
+# The Tauri shell needs the platform's webview libraries, so plain cargo commands skip it.
+default-members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+aes = "0.8"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "ws"] }
+effect-rpc = { path = "crates/effect-rpc", default-features = false }
+fme-core = { path = "crates/fme-core" }
+fme-server = { path = "crates/fme-server" }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+getrandom = "0.4"
+indexmap = { version = "2", features = ["serde"] }
+# LZMA from the sevenz-rust2 project; the vendor package is an NSIS installer, not a .7z archive.
+lzma-rust2 = { version = "0.25", default-features = false, features = ["std", "optimization"] }
+nix = { version = "0.30", features = ["fs", "term"] }
+percent-encoding = "2"
+# Only the pinned vendor URL is fetched; rustls with the platform's roots, no proxies or HTTP/2.
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+ryu-js = "1"
+serialport = "4"
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+# JavaScript objects keep insertion order, and so must JSON values crossing the wire.
+serde_json = { version = "1", features = ["preserve_order"] }
+tauri = "2.12"
+tauri-build = "2.7"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-tungstenite = "0.29"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+  "ansi",
+  "fmt",
+  "std",
+] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+# The Rust side of the rules in docs/internals/rust-services.md.
+dbg_macro = "deny"
+expect_used = "deny"
+print_stderr = "deny"
+print_stdout = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+await_holding_lock = "deny"
+let_underscore_must_use = "deny"
+
+# The desktop app and `fme` ship these binaries: smaller downloads over build time and peak speed.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

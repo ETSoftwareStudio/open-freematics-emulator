@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Open Freematics Emulator",
+  "version": "../package.json",
+  "identifier": "studio.etsoftware.open-freematics-emulator",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://localhost:5738",
+    "beforeDevCommand": {
+      "script": "vp run --filter @fme/web dev",
+      "cwd": "../..",
+      "wait": false
+    },
+    "beforeBuildCommand": {
+      "script": "vp run --filter @fme/web build",
+      "cwd": "../.."
+    }
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg", "nsis", "msi", "deb", "appimage"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "publisher": "ET Software Studio Inc.",
+    "copyright": "Developed by ET Software Studio Inc. · etsoftware.studio",
+    "homepage": "https://freematics.com/products/freematics-obd-emulator-mk2/",
+    "license": "MIT",
+    "category": "DeveloperTool",
+    "shortDescription": "Desktop app for the Freematics OBD-II Emulator MK2",
+    "longDescription": "An independent, unofficial app for the Freematics OBD-II Emulator MK2. Not affiliated with, endorsed by or supported by Freematics.",
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "signingIdentity": "-"
+    },
+    "linux": {
+      "deb": {
+        "section": "devel"
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "_tag": "serial",
+    "path": "/dev/cu.OBDII"
+  },
+  {
+    "_tag": "tcp",
+    "host": "192.168.0.10",
+    "port": 35000
+  },
+  {
+    "_tag": "simulated"
+  }
+]

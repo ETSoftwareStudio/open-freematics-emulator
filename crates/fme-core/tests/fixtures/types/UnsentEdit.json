@@ -1,0 +1,11 @@
+[
+  {
+    "_tag": "dtcs",
+    "mode": "07",
+    "codes": ["P0420"]
+  },
+  {
+    "_tag": "calibrationId",
+    "calibrationId": "JMB*36761500"
+  }
+]

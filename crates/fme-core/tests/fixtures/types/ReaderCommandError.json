@@ -1,0 +1,22 @@
+[
+  {
+    "_tag": "ReaderCommandError",
+    "command": "0105",
+    "reason": "no-answer"
+  },
+  {
+    "_tag": "ReaderCommandError",
+    "command": "0105",
+    "reason": "rejected"
+  },
+  {
+    "_tag": "ReaderCommandError",
+    "command": "0105",
+    "reason": "timeout"
+  },
+  {
+    "_tag": "ReaderCommandError",
+    "command": "0105",
+    "reason": "link"
+  }
+]

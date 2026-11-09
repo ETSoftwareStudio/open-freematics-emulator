@@ -31,7 +31,7 @@ export function AppToolbar({
   return (
     <Toolbar>
       <ToolbarSection align="start">
-        {chrome.electron ? null : <AboutPopover />}
+        {chrome.desktop ? null : <AboutPopover />}
         <DevicePicker />
         <ConnectionStatus className="truncate text-muted-foreground max-desktop:hidden" />
       </ToolbarSection>

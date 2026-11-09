@@ -1,0 +1,83 @@
+{
+  "payload": [
+    {
+      "target": {
+        "_tag": "serial",
+        "path": "/dev/cu.usbserial-0001"
+      },
+      "image": {
+        "_tag": "library",
+        "name": "Firmware_MK2_20250311.hex"
+      }
+    },
+    {
+      "target": {
+        "_tag": "simulated"
+      },
+      "image": {
+        "_tag": "file",
+        "text": ":020000040800F2\n:00000001FF\n"
+      },
+      "wireKey": "00112233445566778899aabbccddeeff"
+    }
+  ],
+  "success": [null],
+  "error": [
+    {
+      "_tag": "FirmwareImageError",
+      "reason": "unreadable",
+      "line": null
+    },
+    {
+      "_tag": "FirmwareImageError",
+      "reason": "unreadable",
+      "line": 12
+    },
+    {
+      "_tag": "FirmwareImageError",
+      "reason": "outsideApplication",
+      "line": null
+    },
+    {
+      "_tag": "FirmwareImageError",
+      "reason": "notInLibrary",
+      "line": null
+    },
+    {
+      "_tag": "FirmwareUpdateError",
+      "reason": "busy"
+    },
+    {
+      "_tag": "FirmwareUpdateError",
+      "reason": "wrongKey"
+    },
+    {
+      "_tag": "FirmwareUpdateError",
+      "reason": "noKey"
+    },
+    {
+      "_tag": "FirmwareUpdateError",
+      "reason": "noBootloader"
+    },
+    {
+      "_tag": "FirmwareUpdateError",
+      "reason": "doesNotFit"
+    },
+    {
+      "_tag": "FirmwareUpdateError",
+      "reason": "rejected"
+    },
+    {
+      "_tag": "FirmwareUpdateError",
+      "reason": "noReply"
+    },
+    {
+      "_tag": "FirmwareUpdateError",
+      "reason": "unexpectedReply"
+    },
+    {
+      "_tag": "FirmwareUpdateError",
+      "reason": "link"
+    }
+  ]
+}

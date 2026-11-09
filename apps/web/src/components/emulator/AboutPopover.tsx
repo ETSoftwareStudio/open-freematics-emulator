@@ -1,6 +1,6 @@
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "~/components/ui/popover";
 import { Separator } from "~/components/ui/separator";
-import { version } from "../../../package.json";
+import { version } from "../../../../desktop-tauri/package.json";
 
 export function AboutPopover() {
   return (

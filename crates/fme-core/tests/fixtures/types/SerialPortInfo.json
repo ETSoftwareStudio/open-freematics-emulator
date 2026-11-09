@@ -1,0 +1,21 @@
+[
+  {
+    "path": "/dev/cu.usbserial-0001",
+    "manufacturer": "Silicon Labs",
+    "vendorId": "10c4",
+    "productId": "ea60",
+    "transport": "usb",
+    "likelyEmulator": true
+  },
+  {
+    "path": "/dev/cu.OBDII",
+    "transport": "bluetooth",
+    "likelyEmulator": false
+  },
+  {
+    "path": "COM3",
+    "manufacturer": "Microsoft",
+    "transport": "other",
+    "likelyEmulator": false
+  }
+]

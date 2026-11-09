@@ -1,0 +1,13 @@
+{
+  "payload": [null],
+  "success": [
+    {
+      "_tag": "absent"
+    },
+    {
+      "_tag": "present",
+      "fingerprint": "9f86d081"
+    }
+  ],
+  "error": []
+}

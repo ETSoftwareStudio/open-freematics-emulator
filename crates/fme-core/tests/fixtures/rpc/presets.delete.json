@@ -1,0 +1,40 @@
+{
+  "payload": [
+    {
+      "id": "user:0f8b2c1e-7d4a-4f0e-9a51-3b1c2d4e5f60"
+    }
+  ],
+  "success": [null],
+  "error": [
+    {
+      "_tag": "PresetNotFoundError",
+      "id": "user:gone"
+    },
+    {
+      "_tag": "PresetReadOnlyError",
+      "id": "builtin:idle",
+      "operation": "save"
+    },
+    {
+      "_tag": "PresetReadOnlyError",
+      "id": "builtin:idle",
+      "operation": "delete"
+    },
+    {
+      "_tag": "PresetPersistError",
+      "path": "/data/presets.json",
+      "cause": {
+        "name": "Error",
+        "message": "EACCES"
+      }
+    },
+    {
+      "_tag": "PresetPersistError",
+      "path": "/data/presets.json",
+      "cause": {
+        "code": "ENOSPC",
+        "errno": -28
+      }
+    }
+  ]
+}

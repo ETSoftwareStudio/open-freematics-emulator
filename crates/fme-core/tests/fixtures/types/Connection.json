@@ -1,0 +1,49 @@
+[
+  {
+    "_tag": "disconnected"
+  },
+  {
+    "_tag": "connecting",
+    "target": {
+      "_tag": "simulated"
+    }
+  },
+  {
+    "_tag": "connected",
+    "target": {
+      "_tag": "serial",
+      "path": "/dev/cu.usbserial-0001"
+    },
+    "device": {
+      "banner": "OBD-II EMULATOR V1.2",
+      "details": "00.00.02,00.01.05,201910,GH201910BN05928,1HGCD5654VA061985"
+    },
+    "unsent": [
+      {
+        "_tag": "dtcs",
+        "mode": "07",
+        "codes": ["P0420"]
+      },
+      {
+        "_tag": "calibrationId",
+        "calibrationId": "JMB*36761500"
+      }
+    ]
+  },
+  {
+    "_tag": "connected",
+    "target": {
+      "_tag": "simulated"
+    },
+    "device": null,
+    "unsent": []
+  },
+  {
+    "_tag": "failed",
+    "target": {
+      "_tag": "serial",
+      "path": "/dev/cu.usbserial-0001"
+    },
+    "reason": "The device did not answer."
+  }
+]

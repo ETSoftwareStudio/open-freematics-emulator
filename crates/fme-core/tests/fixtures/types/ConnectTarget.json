@@ -1,0 +1,9 @@
+[
+  {
+    "_tag": "serial",
+    "path": "/dev/cu.usbserial-0001"
+  },
+  {
+    "_tag": "simulated"
+  }
+]

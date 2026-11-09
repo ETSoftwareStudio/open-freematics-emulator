@@ -1,0 +1,318 @@
+[
+  {
+    "connection": {
+      "_tag": "disconnected"
+    },
+    "capabilities": null,
+    "ignition": true,
+    "protocol": "CAN_11B_500K",
+    "vinEnabled": true,
+    "vin": null,
+    "calibrationId": null,
+    "dtcs": {
+      "03": [],
+      "07": [],
+      "0A": []
+    },
+    "pids": {
+      "010C": 1000,
+      "0104": 50,
+      "0143": 50,
+      "010E": 0,
+      "0161": 90,
+      "0162": 50,
+      "0163": 240,
+      "0142": 14,
+      "011F": 0,
+      "010D": 50,
+      "0121": 0,
+      "0131": 0,
+      "014D": 0,
+      "014E": 0,
+      "0130": 0,
+      "0111": 20,
+      "0145": 0,
+      "0147": 0,
+      "0148": 0,
+      "0149": 0,
+      "014A": 0,
+      "014B": 0,
+      "014C": 0,
+      "015A": 0,
+      "010B": 100,
+      "0110": 80,
+      "0133": 101,
+      "010A": 150,
+      "0122": 200,
+      "0123": 0,
+      "012F": 75,
+      "0152": 0,
+      "015D": 0,
+      "015E": 20,
+      "0105": 90,
+      "010F": 20,
+      "0146": 25,
+      "015C": 95,
+      "013C": 0,
+      "013D": 0,
+      "013E": 0,
+      "013F": 0,
+      "012C": 0,
+      "012D": 0,
+      "012E": 0
+    },
+    "readiness": {
+      "misfire": {
+        "supported": true,
+        "complete": true
+      },
+      "fuelSystem": {
+        "supported": true,
+        "complete": true
+      },
+      "components": {
+        "supported": true,
+        "complete": true
+      },
+      "catalyst": {
+        "supported": true,
+        "complete": true
+      },
+      "heatedCatalyst": {
+        "supported": true,
+        "complete": true
+      },
+      "evaporativeSystem": {
+        "supported": true,
+        "complete": true
+      },
+      "secondaryAirSystem": {
+        "supported": true,
+        "complete": true
+      },
+      "acRefrigerant": {
+        "supported": true,
+        "complete": true
+      },
+      "oxygenSensor": {
+        "supported": true,
+        "complete": true
+      },
+      "oxygenSensorHeater": {
+        "supported": true,
+        "complete": true
+      },
+      "egrSystem": {
+        "supported": true,
+        "complete": true
+      }
+    },
+    "lastPreset": null
+  },
+  {
+    "connection": {
+      "_tag": "connected",
+      "target": {
+        "_tag": "serial",
+        "path": "/dev/cu.usbserial-0001"
+      },
+      "device": {
+        "banner": "OBD-II EMULATOR V1.2",
+        "details": "00.00.02,00.01.05,201910,GH201910BN05928,1HGCD5654VA061985"
+      },
+      "unsent": [
+        {
+          "_tag": "dtcs",
+          "mode": "07",
+          "codes": ["P0420"]
+        },
+        {
+          "_tag": "calibrationId",
+          "calibrationId": "JMB*36761500"
+        }
+      ]
+    },
+    "capabilities": {
+      "dtcModes": ["03"],
+      "calibrationId": false
+    },
+    "ignition": false,
+    "protocol": "J1850_VPW",
+    "vinEnabled": false,
+    "vin": "1HGCD5654VA061985",
+    "calibrationId": "JMB*36761500",
+    "dtcs": {
+      "03": ["P0105", "P0300"],
+      "07": ["U0100"],
+      "0A": []
+    },
+    "pids": {
+      "010C": 1000,
+      "0104": 50,
+      "0143": 50,
+      "010E": -64,
+      "0161": 90,
+      "0162": 50,
+      "0163": 240,
+      "0142": 14.2,
+      "011F": 0,
+      "010D": 50,
+      "0121": 0,
+      "0131": 0,
+      "014D": 0,
+      "014E": 0,
+      "0130": 0,
+      "0111": 20,
+      "0145": 0,
+      "0147": 0,
+      "0148": 0,
+      "0149": 0,
+      "014A": 0,
+      "014B": 0,
+      "014C": 0,
+      "015A": 0,
+      "010B": 100,
+      "0110": 80.25,
+      "0133": 101,
+      "010A": 150,
+      "0122": 200,
+      "0123": 0,
+      "012F": 75,
+      "0152": 0,
+      "015D": 0,
+      "015E": 20,
+      "0105": 90,
+      "010F": 20,
+      "0146": 25,
+      "015C": 95,
+      "013C": 0,
+      "013D": 0,
+      "013E": 0,
+      "013F": 0,
+      "012C": 0,
+      "012D": 0,
+      "012E": 0
+    },
+    "readiness": {
+      "misfire": {
+        "supported": true,
+        "complete": false
+      },
+      "fuelSystem": {
+        "supported": true,
+        "complete": true
+      },
+      "components": {
+        "supported": true,
+        "complete": true
+      },
+      "catalyst": {
+        "supported": true,
+        "complete": true
+      },
+      "heatedCatalyst": {
+        "supported": true,
+        "complete": true
+      },
+      "evaporativeSystem": {
+        "supported": true,
+        "complete": true
+      },
+      "secondaryAirSystem": {
+        "supported": true,
+        "complete": true
+      },
+      "acRefrigerant": {
+        "supported": true,
+        "complete": true
+      },
+      "oxygenSensor": {
+        "supported": true,
+        "complete": true
+      },
+      "oxygenSensorHeater": {
+        "supported": true,
+        "complete": true
+      },
+      "egrSystem": {
+        "supported": false,
+        "complete": false
+      }
+    },
+    "lastPreset": {
+      "id": "builtin:cruise",
+      "name": "Cruise"
+    }
+  },
+  {
+    "connection": {
+      "_tag": "failed",
+      "target": {
+        "_tag": "simulated"
+      },
+      "reason": "Port busy"
+    },
+    "capabilities": null,
+    "ignition": true,
+    "protocol": "CAN_11B_500K",
+    "vinEnabled": true,
+    "vin": null,
+    "calibrationId": null,
+    "dtcs": {
+      "03": [],
+      "07": [],
+      "0A": []
+    },
+    "pids": {
+      "010C": "NaN",
+      "010D": "Infinity"
+    },
+    "readiness": {
+      "misfire": {
+        "supported": true,
+        "complete": true
+      },
+      "fuelSystem": {
+        "supported": true,
+        "complete": true
+      },
+      "components": {
+        "supported": true,
+        "complete": true
+      },
+      "catalyst": {
+        "supported": true,
+        "complete": true
+      },
+      "heatedCatalyst": {
+        "supported": true,
+        "complete": true
+      },
+      "evaporativeSystem": {
+        "supported": true,
+        "complete": true
+      },
+      "secondaryAirSystem": {
+        "supported": true,
+        "complete": true
+      },
+      "acRefrigerant": {
+        "supported": true,
+        "complete": true
+      },
+      "oxygenSensor": {
+        "supported": true,
+        "complete": true
+      },
+      "oxygenSensorHeater": {
+        "supported": true,
+        "complete": true
+      },
+      "egrSystem": {
+        "supported": true,
+        "complete": true
+      }
+    },
+    "lastPreset": null
+  }
+]

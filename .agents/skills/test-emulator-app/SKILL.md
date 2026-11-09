@@ -7,12 +7,13 @@ description: Run the Open Freematics Emulator app and verify a change end to end
 
 ## Start it
 
-Run `vp run dev` from the repository root in the background and keep its terminal. Read the ports
-from the `[dev-runner]` line (web 5738, server 3738 by default). Vite proxies `/ws` and `/api` to
-the server, so open the web port only.
+Run `vp run dev` from the repository root in the background and keep its terminal. It builds the
+Rust server (`target/debug/fme`), then runs it next to Vite. Read the ports from the `[dev-runner]`
+line (web 5738, server 3738 by default). Vite proxies `/ws` and `/api` to the server, so open the
+web port only.
 
-`node --watch` restarts the server when `apps/server/src` or `packages/` change. A restart drops
-the device connection; reconnect from the UI before checking anything.
+Vite hot-reloads the web app; the server is not watched. After changing `crates/`, stop
+`vp run dev` and start it again, then reconnect from the UI before checking anything.
 
 Stop what you started by the task or PID you recorded. Never kill by name or pattern.
 
@@ -37,23 +38,15 @@ change and commit handlers.
 
 ## Verify the desktop app
 
-`vp run desktop` builds and opens it; `vp run desktop:dev` opens it on the dev server with hot
-reload. To drive it from a tool, launch Electron yourself with a
-debugging port and talk to the window over the DevTools protocol (`/json/list`, then
-`Runtime.evaluate`, `Page.captureScreenshot`):
-
-```sh
-cd apps/desktop && env -u ELECTRON_RUN_AS_NODE ./node_modules/.bin/electron . --remote-debugging-port=9333
-```
-
-Shells inside Electron apps may export `ELECTRON_RUN_AS_NODE=1`, which turns Electron into plain
-Node; unset it. After closing the window, check that the server is gone and the serial port is
-free (`lsof /dev/cu.X`). For packages, `vp run desktop:dist` then `vp run @fme/desktop#smoke`.
+The Tauri app: `vp run desktop` builds and opens it, `vp run desktop:dev` opens it on Vite with
+hot reload. `vp run desktop:dist` packages it (add `--bundles app` on a headless Mac, where the
+DMG step's Finder script times out), then `vp run @fme/desktop-tauri#smoke`. `FME_DATA_DIR`
+points it at a scratch data dir. It runs the server in-process, so quitting it frees the port.
 
 ## Verify against hardware without a browser
 
 With the dev server connected to nothing, run `vp run hardware:check` (or
-`node apps/server/scripts/hardware-check.ts --port /dev/cu.X`). It drives every control over the
+`node tools/hardware-check.ts --port /dev/cu.X`). It drives every control over the
 WebSocket RPC, reads each value back from the device, restores the state, and exits non-zero on
 any mismatch.
 
@@ -65,4 +58,4 @@ Bluetooth; a device that is merely listed there has no port.
 ## When the simulator is wrong
 
 If real hardware answers differently from `SimulatedDevice`, the hardware wins: record the reply,
-add it to the table in `SimulatedDevice.test.ts`, then fix the simulator.
+add it to the tests in `crates/fme-server/src/device/simulated_device.rs`, then fix the simulator.

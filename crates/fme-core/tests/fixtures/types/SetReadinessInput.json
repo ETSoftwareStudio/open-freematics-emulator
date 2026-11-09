@@ -1,0 +1,7 @@
+[
+  {
+    "monitor": "oxygenSensorHeater",
+    "supported": true,
+    "complete": false
+  }
+]

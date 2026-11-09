@@ -1,0 +1,12 @@
+[
+  {
+    "_tag": "PresetReadOnlyError",
+    "id": "builtin:idle",
+    "operation": "save"
+  },
+  {
+    "_tag": "PresetReadOnlyError",
+    "id": "builtin:idle",
+    "operation": "delete"
+  }
+]

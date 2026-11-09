@@ -26,16 +26,26 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Install the serial port library the Rust server links
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec vp run check
 
   npm-package:
-    name: npm package (${{ matrix.os }})
+    name: npm package (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+        # The targets and runners of desktop-tauri.yml. macOS x64 cross-compiles on arm64, so it
+        # builds and stages but can't install there.
+        include:
+          - { runner: macos-latest, target: aarch64-apple-darwin, smoke: true }
+          - { runner: macos-latest, target: x86_64-apple-darwin, smoke: false }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc, smoke: true }
+          - { runner: windows-11-arm, target: aarch64-pc-windows-msvc, smoke: true }
+          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, smoke: true }
+          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, smoke: true }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,7 +55,15 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Install the serial port library the Rust server links
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: npm-${{ matrix.target }}
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec vp run npm:stage
-      - name: Smoke-test the package as npx runs it
+      - run: pnpm exec vp run npm:stage --target ${{ matrix.target }}
+      - name: Smoke-test the packages as npx runs them
+        if: matrix.smoke
         run: pnpm exec vp run npm:smoke

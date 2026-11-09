@@ -1,0 +1,10 @@
+[
+  {
+    "_tag": "file",
+    "text": ":020000040800F2\n:00000001FF\n"
+  },
+  {
+    "_tag": "library",
+    "name": "Firmware_MK2_20250311.hex"
+  }
+]
