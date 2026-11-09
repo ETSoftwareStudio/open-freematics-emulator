@@ -92,7 +92,7 @@ async fn socket(State(handlers): State<Arc<Handlers>>, upgrade: WebSocketUpgrade
         .on_upgrade(move |socket| effect_rpc::axum::serve(socket, handlers))
 }
 
-/// Effect's `HttpStaticServer` types; anything else is `application/octet-stream`.
+/// The type of a web app file by its extension; anything else is `application/octet-stream`.
 fn mime_type(path: &Path) -> &'static str {
     let extension = path
         .extension()
@@ -181,8 +181,7 @@ async fn file_response(path: &Path) -> Response {
     }
 }
 
-/// Serves the built web app like Effect's static server: files by path, a directory's
-/// `index.html`, and 404 for anything else.
+/// Serves the built web app: files by path, a directory's `index.html`, and 404 for anything else.
 async fn web_app(State(root): State<Arc<Path>>, method: Method, uri: Uri) -> Response {
     if method != Method::GET && method != Method::HEAD {
         return StatusCode::NOT_FOUND.into_response();
