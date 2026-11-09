@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/ETSoftwareStudio/open-freematics-emulator/compare/v1.0.2...v1.1.0) (2026-11-09)
+
+
+### Features
+
+* port the server to Rust and add a Tauri desktop shell ([#5](https://github.com/ETSoftwareStudio/open-freematics-emulator/issues/5)) ([0c4dd3c](https://github.com/ETSoftwareStudio/open-freematics-emulator/commit/0c4dd3cfd0b40afbe8f39c27a448a1581492be1f))
+
 ## [1.0.2](https://github.com/ETSoftwareStudio/open-freematics-emulator/compare/v1.0.1...v1.0.2) (2026-11-08)
 
 
