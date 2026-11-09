@@ -9,6 +9,8 @@ import * as Stream from "effect/Stream";
 import type { DeviceLink, DeviceLinkError } from "../device/DeviceLink.ts";
 
 export const REQUEST_TIMEOUT = Duration.seconds(3);
+/** A cold Bluetooth link takes seconds to come up before the adapter even sees the reset. */
+export const RESET_TIMEOUT = Duration.seconds(8);
 /** The first request after reset makes the adapter search every protocol. */
 export const SEARCH_TIMEOUT = Duration.seconds(12);
 

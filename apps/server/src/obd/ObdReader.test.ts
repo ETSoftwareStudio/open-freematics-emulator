@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { fakePorts } from "../device/fakePorts.ts";
@@ -213,7 +214,7 @@ const bluetoothReader = (fake: ReturnType<typeof fakePorts>) =>
 const connectFailure = Effect.gen(function* () {
   const reader = yield* ObdReader.ObdReader;
   const connecting = yield* reader.connect(ADAPTER).pipe(Effect.flip, Effect.forkChild);
-  yield* TestClock.adjust(ElmClient.REQUEST_TIMEOUT);
+  yield* TestClock.adjust(ElmClient.RESET_TIMEOUT);
   return (yield* Fiber.join(connecting)).reason;
 });
 
@@ -224,6 +225,22 @@ describe("ObdReader on a macOS Bluetooth port", () => {
       expect(yield* connectFailure).toBe("bluetooth-stale");
       const state = yield* readerStateWhere((s) => s.connection._tag === "failed");
       expect(state.connection).toMatchObject({ reason: expect.stringContaining("pair it again") });
+    }).pipe(Effect.provide(bluetoothReader(fake)));
+  });
+
+  it.effect("waits for a cold Bluetooth link before giving up on the reset", () => {
+    const fake = fakePorts();
+    return Effect.gen(function* () {
+      const reader = yield* ObdReader.ObdReader;
+      const connecting = yield* reader.connect(ADAPTER).pipe(Effect.forkChild);
+      // The link came up and the adapter reset 3.1 s after the open on the real adapter.
+      yield* TestClock.adjust("4 seconds");
+      fake.state.answer = () => "\r>";
+      if (fake.state.incoming !== undefined)
+        Queue.offerUnsafe(fake.state.incoming, "ELM327 v1.5\r\r>");
+      yield* Fiber.join(connecting);
+      const state = yield* readerStateWhere((s) => s.connection._tag === "connected");
+      expect(state.connection).toMatchObject({ adapter: "ELM327 v1.5" });
     }).pipe(Effect.provide(bluetoothReader(fake)));
   });
 

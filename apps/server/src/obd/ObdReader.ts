@@ -229,7 +229,7 @@ const make = Effect.gen(function* () {
           onLinkLost: () => onLinkLost(id),
         }).pipe(Scope.provide(scope));
 
-        const identity = yield* client.request("ATZ").pipe(
+        const identity = yield* client.request("ATZ", { timeout: ElmClient.RESET_TIMEOUT }).pipe(
           Effect.map((lines) => lines.find((line) => /ELM|OBD/i.test(line))),
           Effect.orElseSucceed(() => undefined),
         );

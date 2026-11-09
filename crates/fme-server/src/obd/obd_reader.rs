@@ -472,7 +472,7 @@ impl ObdReader {
             .map_err(|_| fail(ReaderConnectReason::OpenFailed))?;
         let client = ElmClient::spawn(link, self.client_options(id));
 
-        let reset = client.request("ATZ", RequestOptions::default()).await;
+        let reset = client.request("ATZ", RequestOptions::RESET).await;
         let Some(identity) = reset.ok().and_then(|lines| identify(&lines)) else {
             let reason = if silent_means_stale && !client.received() {
                 ReaderConnectReason::BluetoothStale
@@ -858,6 +858,26 @@ mod tests {
             panic!("unexpected {:?}", state.connection);
         };
         assert!(reason.contains("pair it again"), "{reason}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn waits_for_a_cold_bluetooth_link_before_giving_up_on_the_reset() {
+        let system = FakeSystem::silent(true);
+        let reader = bluetooth_reader(&system);
+        // The link came up and the adapter reset 3.1 s after the open on the real adapter.
+        let adapter_wakes = async {
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            system.answer(|_| Some("\r>".to_owned()));
+            system.arrive(Ok("ELM327 v1.5\r\r>".to_owned()));
+        };
+        let (connected, ()) = tokio::join!(reader.connect(adapter()), adapter_wakes);
+        connected.unwrap();
+        let state = reader.state().borrow().clone();
+        assert!(
+            matches!(&state.connection, ReaderConnection::Connected { adapter, .. } if adapter == "ELM327 v1.5"),
+            "{:?}",
+            state.connection
+        );
     }
 
     #[tokio::test(start_paused = true)]

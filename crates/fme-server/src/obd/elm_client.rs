@@ -18,6 +18,8 @@ use crate::device::device_link::{DeviceLink, DeviceLinkError};
 use crate::emulator::at_client::{OnLinkLost, OnTraffic};
 
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
+/// A cold Bluetooth link takes seconds to come up before the adapter even sees the reset.
+pub const RESET_TIMEOUT: Duration = Duration::from_secs(8);
 /// The first request after reset makes the adapter search every protocol.
 pub const SEARCH_TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -47,6 +49,11 @@ impl RequestOptions {
     pub const QUIET: Self = Self {
         timeout: REQUEST_TIMEOUT,
         quiet: true,
+    };
+
+    pub const RESET: Self = Self {
+        timeout: RESET_TIMEOUT,
+        quiet: false,
     };
 
     pub const SEARCH: Self = Self {
