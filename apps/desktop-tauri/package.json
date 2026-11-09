@@ -1,6 +1,6 @@
 {
   "name": "@fme/desktop-tauri",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "private": true,
   "description": "Desktop app for the Freematics OBD-II Emulator MK2, on Tauri",
   "license": "MIT",
