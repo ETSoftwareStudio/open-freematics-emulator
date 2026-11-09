@@ -57,8 +57,9 @@ errors implement `RpcError` in `fme-core` with `typed_errors!`. Wire rules:
 `http.rs` serves `/ws`, `/api/health` and the built web app (Effect's static server rules and
 MIME types) behind the loopback same-origin guard. The `fme` binary takes `bin.ts`'s flags.
 `server::Server` binds first (port 0 picks a free one) and serves until a shutdown future
-resolves, then closes the device links; the Tauri app (`apps/desktop-tauri`) runs it in-process
-that way.
+resolves, then closes the device links and the macOS Bluetooth ports `SerialPorts` holds open
+(macOS serves those only until their first close); the Tauri app (`apps/desktop-tauri`) runs it
+in-process that way.
 
 ## Checking
 

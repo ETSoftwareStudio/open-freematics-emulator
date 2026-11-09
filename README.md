@@ -144,7 +144,10 @@ Importing does not flash anything. Updating the selected device still requires t
    emulator (Bluetooth SPP, Wi-Fi or USB) and see what a vehicle reader gets: live PID values next
    to each control, stored codes, VIN, detected protocol. ✅ with the simulated adapter and a
    real Bluetooth ELM327 (`vp run hardware:check --reader /dev/cu.OBDII`, 24/24). On macOS the
-   adapter's port only answers once the Bluetooth link is connected.
+   adapter's port only answers once the Bluetooth link is connected. macOS also stops serving a
+   Bluetooth serial port after its first close, so the app keeps the adapter's port open while
+   it runs: disconnecting and reconnecting works. After restarting the app, if the adapter
+   doesn't answer, forget it in System Settings → Bluetooth and pair it again.
 8. **Emulator over BLE** – manage the MK2 through its built-in BLE serial link instead of USB.
 
 **Later:** drive-cycle scenarios (scripted PID streams).
@@ -166,6 +169,9 @@ Importing does not flash anything. Updating the selected device still requires t
   Updates use AES-128-ECB command frames and clear replies; the simulated device models both.
 - On macOS, `serialport`'s kqueue poller never fires for the CP210x driver; the server reads the
   port through Node's TTY stream instead.
+- On macOS (27.2), `bluetoothd` serves a Bluetooth SPP port (`/dev/cu.OBDII`) once per pairing.
+  After the first close, opens still succeed but no byte ever comes back until the adapter is
+  paired again. The server holds those ports open until it stops.
 
 ## Layout
 

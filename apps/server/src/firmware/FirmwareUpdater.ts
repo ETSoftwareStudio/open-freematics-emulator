@@ -149,8 +149,9 @@ const make = Effect.gen(function* () {
     traffic.record("emulator", direction, text);
 
   const openLink = (target: ConnectTarget) =>
-    (target._tag === "simulated" ? simulated.open : serialPorts.open(target.path)).pipe(
-      Effect.mapError(linkError),
+    Effect.mapError(
+      target._tag === "simulated" ? simulated.open : serialPorts.open(target.path),
+      linkError,
     );
 
   const write = (link: DeviceLink, data: string | Uint8Array, note: string) =>

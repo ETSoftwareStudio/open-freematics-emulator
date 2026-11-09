@@ -768,12 +768,13 @@ mod tests {
         }
         let simulated = SimulatedDevice::new(version);
         let traffic = TrafficLog::new();
-        let session = EmulatorSession::new(SerialPorts, simulated.clone(), traffic.clone());
+        let session =
+            EmulatorSession::new(SerialPorts::default(), simulated.clone(), traffic.clone());
         let disk = LocalDisk::shared();
         let keys = WireKeyStore::new(Arc::clone(&disk), &data_dir).await;
         let library = FirmwareLibrary::new(disk, &data_dir, keys.clone()).await;
         let updater = FirmwareUpdater::new(
-            SerialPorts,
+            SerialPorts::default(),
             simulated.clone(),
             session,
             traffic,

@@ -592,8 +592,14 @@ mod tests {
     async fn connected() -> Fixture {
         let simulated = SimulatedDevice::new(SimulatedVersion::V1_2);
         let traffic = TrafficLog::new();
-        let session = EmulatorSession::new(SerialPorts, simulated.clone(), traffic.clone());
-        let reader = ObdReader::new(SerialPorts, TcpSockets, simulated.clone(), traffic);
+        let session =
+            EmulatorSession::new(SerialPorts::default(), simulated.clone(), traffic.clone());
+        let reader = ObdReader::new(
+            SerialPorts::default(),
+            TcpSockets,
+            simulated.clone(),
+            traffic,
+        );
         session.connect(ConnectTarget::Simulated).await.unwrap();
         reader.connect(ReaderTarget::Simulated).await.unwrap();
         Fixture {

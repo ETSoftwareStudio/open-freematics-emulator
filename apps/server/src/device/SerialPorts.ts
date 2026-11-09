@@ -6,22 +6,39 @@ import { SerialPortListError, type SerialPortInfo } from "@fme/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
-import type * as Scope from "effect/Scope";
+import * as Scope from "effect/Scope";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { SerialPort } from "serialport";
 import { DeviceLinkError, type DeviceLink } from "./DeviceLink.ts";
 
 export const BAUD_RATE = 38400;
 
+export interface SerialLink extends DeviceLink {
+  /** A real open of a held macOS Bluetooth port: silence here means macOS stopped serving it. */
+  readonly silentMeansStale: boolean;
+}
+
 export class SerialPorts extends Context.Service<
   SerialPorts,
   {
     readonly list: Effect.Effect<ReadonlyArray<SerialPortInfo>, SerialPortListError>;
-    readonly open: (path: string) => Effect.Effect<DeviceLink, DeviceLinkError, Scope.Scope>;
+    /**
+     * Opens the port for the scope. macOS Bluetooth ports stay open for the server's lifetime:
+     * closing the scope only detaches, and the next open reuses the descriptor.
+     */
+    readonly open: (path: string) => Effect.Effect<SerialLink, DeviceLinkError, Scope.Scope>;
   }
 >()("@fme/server/device/SerialPorts") {}
+
+export interface SerialPortsOptions {
+  readonly platform: NodeJS.Platform;
+  readonly isBluetooth: (path: string) => Effect.Effect<boolean>;
+  readonly openPort: (path: string) => Effect.Effect<DeviceLink, DeviceLinkError, Scope.Scope>;
+}
 
 // CP2102 on current MK2 units, CH340 on older ones.
 const EMULATOR_BRIDGES = new Set(["10c4:ea60", "1a86:7523"]);
@@ -181,9 +198,116 @@ const openWindows = Effect.fn("SerialPorts.openWindows")(function* (path: string
   return { write, chunks: chunksFrom(port) } satisfies DeviceLink;
 });
 
-const open = Effect.fn("SerialPorts.open")(function* (path: string) {
-  yield* Effect.annotateCurrentSpan("path", path);
+const openPort = Effect.fn("SerialPorts.openPort")(function* (path: string) {
   return yield* process.platform === "win32" ? openWindows(path) : openPosix(path);
 });
 
-export const layer = Layer.succeed(SerialPorts, SerialPorts.of({ list, open }));
+const isBluetooth = (path: string) =>
+  list.pipe(
+    Effect.map((ports) =>
+      ports.some((port) => port.path === path && port.transport === "bluetooth"),
+    ),
+    Effect.orElseSucceed(() => false),
+  );
+
+interface HeldPort {
+  readonly link: DeviceLink;
+  readonly scope: Scope.Closeable;
+  lease: Queue.Queue<string, DeviceLinkError | Cause.Done> | undefined;
+  dropped: boolean;
+}
+
+const ended = Cause.fail(Cause.Done());
+
+/**
+ * macOS (27.2) serves a Bluetooth SPP port once per pairing: after its first close, later opens
+ * succeed but nothing ever answers until the adapter is paired again. So those ports are held.
+ */
+const make = Effect.fn("SerialPorts.make")(function* (options: SerialPortsOptions) {
+  const serverScope = yield* Effect.scope;
+  const held = new Map<string, HeldPort>();
+  const opening = yield* Semaphore.make(1);
+
+  const drop = Effect.fnUntraced(function* (
+    path: string,
+    port: HeldPort,
+    cause: Cause.Cause<DeviceLinkError | Cause.Done>,
+  ) {
+    if (port.dropped) return;
+    port.dropped = true;
+    if (held.get(path) === port) held.delete(path);
+    yield* Scope.close(port.scope, Exit.void);
+    if (port.lease !== undefined) Queue.failCauseUnsafe(port.lease, cause);
+    port.lease = undefined;
+  });
+
+  // Whatever arrives while no lease is attached is dropped, so each lease starts clean.
+  const pump = (path: string, port: HeldPort) =>
+    port.link.chunks.pipe(
+      Stream.runForEach((chunk) =>
+        Effect.sync(() => port.lease !== undefined && Queue.offerUnsafe(port.lease, chunk)),
+      ),
+      Effect.exit,
+      Effect.flatMap((exit) => drop(path, port, Exit.isSuccess(exit) ? ended : exit.cause)),
+      Effect.forkIn(serverScope),
+    );
+
+  const lease = Effect.fnUntraced(function* (
+    path: string,
+    port: HeldPort,
+    silentMeansStale: boolean,
+  ) {
+    const queue = yield* Queue.unbounded<string, DeviceLinkError | Cause.Done>();
+    yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        port.lease = queue;
+      }),
+      () =>
+        Effect.sync(() => {
+          if (port.lease === queue) port.lease = undefined;
+        }),
+    );
+    const write = (data: string | Uint8Array) =>
+      port.link.write(data).pipe(Effect.tapError((error) => drop(path, port, Cause.fail(error))));
+    return { write, chunks: Stream.fromQueue(queue), silentMeansStale } satisfies SerialLink;
+  });
+
+  const openHeld = Effect.fnUntraced(function* (path: string) {
+    const current = held.get(path);
+    if (current !== undefined) {
+      if (current.lease !== undefined) {
+        return yield* new DeviceLinkError({ operation: "open", cause: new Error("port busy") });
+      }
+      return yield* lease(path, current, false);
+    }
+    const scope = yield* Scope.make();
+    const link = yield* options.openPort(path).pipe(
+      Scope.provide(scope),
+      Effect.onError(() => Scope.close(scope, Exit.void)),
+    );
+    const port: HeldPort = { link, scope, lease: undefined, dropped: false };
+    held.set(path, port);
+    const leased = yield* lease(path, port, true);
+    yield* pump(path, port);
+    return leased;
+  });
+
+  const open = Effect.fn("SerialPorts.open")(function* (path: string) {
+    yield* Effect.annotateCurrentSpan("path", path);
+    if (options.platform === "darwin" && (yield* options.isBluetooth(path))) {
+      return yield* opening.withPermit(openHeld(path));
+    }
+    const link = yield* options.openPort(path);
+    return { ...link, silentMeansStale: false } satisfies SerialLink;
+  });
+
+  yield* Effect.addFinalizer(() =>
+    Effect.forEach([...held], ([path, port]) => drop(path, port, ended), { discard: true }),
+  );
+
+  return SerialPorts.of({ list, open });
+});
+
+export const layerWith = (options: SerialPortsOptions) => Layer.effect(SerialPorts, make(options));
+
+export const layer = layerWith({ platform: process.platform, isBluetooth, openPort });

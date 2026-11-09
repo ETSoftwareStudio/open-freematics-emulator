@@ -291,7 +291,11 @@ mod tests {
     use crate::traffic::traffic_log::TrafficLog;
 
     fn session() -> EmulatorSession {
-        EmulatorSession::new(SerialPorts, SimulatedDevice::default(), TrafficLog::new())
+        EmulatorSession::new(
+            SerialPorts::default(),
+            SimulatedDevice::default(),
+            TrafficLog::new(),
+        )
     }
 
     async fn store(data_dir: &Path) -> PresetStore {

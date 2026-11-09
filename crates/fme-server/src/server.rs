@@ -50,15 +50,21 @@ pub enum ServerError {
 impl Services {
     /// Every service over `data_dir`, with the simulated MK2 alongside the real ports.
     pub async fn new(data_dir: &Path, http: Arc<dyn HttpClient>) -> Self {
-        let serial_ports = SerialPorts;
+        let serial_ports = SerialPorts::default();
         let simulated = SimulatedDevice::default();
         let traffic = TrafficLog::new();
-        let session = EmulatorSession::new(serial_ports, simulated.clone(), traffic.clone());
-        let reader = ObdReader::new(serial_ports, TcpSockets, simulated.clone(), traffic.clone());
+        let session =
+            EmulatorSession::new(serial_ports.clone(), simulated.clone(), traffic.clone());
+        let reader = ObdReader::new(
+            serial_ports.clone(),
+            TcpSockets,
+            simulated.clone(),
+            traffic.clone(),
+        );
         let presets = Arc::new(PresetStore::new(data_dir, session.clone()).await);
         let firmware = FirmwareServices::new(
             data_dir,
-            serial_ports,
+            serial_ports.clone(),
             simulated,
             session.clone(),
             traffic.clone(),
@@ -66,6 +72,7 @@ impl Services {
         )
         .await;
         Self {
+            serial_ports,
             session,
             traffic,
             reader,
@@ -129,7 +136,8 @@ impl Server {
             tokio::join!(
                 self.services.session.disconnect(),
                 self.services.reader.disconnect()
-            )
+            );
+            self.services.serial_ports.close_held().await;
         };
         if tokio::time::timeout(CLOSE_TIMEOUT, close).await.is_err() {
             tracing::warn!("A device exchange was still running at shutdown");

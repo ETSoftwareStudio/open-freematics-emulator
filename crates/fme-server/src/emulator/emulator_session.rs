@@ -624,7 +624,8 @@ mod tests {
     fn on(version: SimulatedVersion) -> Fixture {
         let simulated = SimulatedDevice::new(version);
         let traffic = TrafficLog::new();
-        let session = EmulatorSession::new(SerialPorts, simulated.clone(), traffic.clone());
+        let session =
+            EmulatorSession::new(SerialPorts::default(), simulated.clone(), traffic.clone());
         Fixture {
             session,
             simulated,

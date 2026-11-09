@@ -19,6 +19,7 @@ use fme_core::contracts::rpc::{
 use futures_util::stream;
 use serde_json::Value;
 
+use crate::device::serial_ports::SerialPorts;
 use crate::emulator::emulator_session::EmulatorSession;
 use crate::firmware::FirmwareServices;
 use crate::firmware::firmware_updater::UpdateError;
@@ -38,6 +39,7 @@ impl RpcError for UpdateError {
 /// The services behind the RPC methods. Cheap to clone.
 #[derive(Debug, Clone)]
 pub struct Services {
+    pub serial_ports: SerialPorts,
     pub session: EmulatorSession,
     pub traffic: TrafficLog,
     pub reader: ObdReader,
@@ -47,6 +49,7 @@ pub struct Services {
 
 pub fn handlers(services: &Services) -> Handlers {
     let Services {
+        serial_ports: _,
         session,
         traffic,
         reader,
