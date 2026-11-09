@@ -23,6 +23,8 @@ export interface ElmClient {
     command: string,
     options?: RequestOptions,
   ) => Effect.Effect<ReadonlyArray<string>, ReaderCommandError>;
+  /** Whether any byte at all has arrived since the client started. */
+  readonly received: Effect.Effect<boolean>;
 }
 
 export interface RequestOptions {
@@ -44,6 +46,7 @@ export const make = Effect.fn("ElmClient.make")(function* (
   const replies = yield* Queue.unbounded<ReadonlyArray<string>>();
   const lock = yield* Semaphore.make(1);
   let buffer = "";
+  let received = false;
   // Replies are logged as they arrive, so one that comes after its request timed out still shows.
   let logReplies = true;
 
@@ -63,6 +66,7 @@ export const make = Effect.fn("ElmClient.make")(function* (
   yield* link.chunks.pipe(
     Stream.runForEach(
       Effect.fnUntraced(function* (chunk: string) {
+        received ||= chunk.length > 0;
         buffer += chunk;
         let prompt = buffer.indexOf(">");
         while (prompt !== -1) {
@@ -125,5 +129,5 @@ export const make = Effect.fn("ElmClient.make")(function* (
       ),
     );
 
-  return { request, query } satisfies ElmClient;
+  return { request, query, received: Effect.sync(() => received) } satisfies ElmClient;
 });

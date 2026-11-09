@@ -5,11 +5,13 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import { fakePorts } from "../device/fakePorts.ts";
 import * as SerialPorts from "../device/SerialPorts.ts";
 import * as SimulatedDevice from "../device/SimulatedDevice.ts";
 import * as TcpSockets from "../device/TcpSockets.ts";
 import * as EmulatorSession from "../emulator/EmulatorSession.ts";
 import * as TrafficLog from "../traffic/TrafficLog.ts";
+import * as ElmClient from "./ElmClient.ts";
 import * as ObdReader from "./ObdReader.ts";
 
 // V1.2: V1.3's default VIN has 16 characters, which a scan tool doesn't take as a VIN.
@@ -186,5 +188,62 @@ describe("ObdReader", () => {
         expect(state.connection._tag).toBe("disconnected");
       }),
     );
+  });
+});
+
+const ADAPTER = { _tag: "serial", path: "/dev/cu.OBDII" } as const;
+
+// A Bluetooth port on macOS, which SerialPorts holds open between connections.
+const bluetoothReader = (fake: ReturnType<typeof fakePorts>) =>
+  ObdReader.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        SerialPorts.layerWith({
+          platform: "darwin",
+          isBluetooth: () => Effect.succeed(true),
+          openPort: fake.openPort,
+        }),
+        TcpSockets.layer,
+        SimulatedDevice.layer,
+        TrafficLog.layer,
+      ),
+    ),
+  );
+
+const connectFailure = Effect.gen(function* () {
+  const reader = yield* ObdReader.ObdReader;
+  const connecting = yield* reader.connect(ADAPTER).pipe(Effect.flip, Effect.forkChild);
+  yield* TestClock.adjust(ElmClient.REQUEST_TIMEOUT);
+  return (yield* Fiber.join(connecting)).reason;
+});
+
+describe("ObdReader on a macOS Bluetooth port", () => {
+  it.effect("says the port went stale when its first open hears nothing", () => {
+    const fake = fakePorts();
+    return Effect.gen(function* () {
+      expect(yield* connectFailure).toBe("bluetooth-stale");
+      const state = yield* readerStateWhere((s) => s.connection._tag === "failed");
+      expect(state.connection).toMatchObject({ reason: expect.stringContaining("pair it again") });
+    }).pipe(Effect.provide(bluetoothReader(fake)));
+  });
+
+  it.effect("calls a garbled reply on a first open no-adapter", () => {
+    const fake = fakePorts(() => "\u0000\u00ff");
+    return connectFailure.pipe(
+      Effect.map((reason) => expect(reason).toBe("no-adapter")),
+      Effect.provide(bluetoothReader(fake)),
+    );
+  });
+
+  it.effect("calls silence on a reused port no-adapter", () => {
+    const fake = fakePorts((written) => (written === "ATZ\r" ? "ELM327 v1.5\r\r>" : "\r>"));
+    return Effect.gen(function* () {
+      const reader = yield* ObdReader.ObdReader;
+      yield* reader.connect(ADAPTER);
+      yield* reader.disconnect;
+      fake.state.answer = () => undefined;
+      expect(yield* connectFailure).toBe("no-adapter");
+      expect(fake.state.events).toEqual(["open"]);
+    }).pipe(Effect.provide(bluetoothReader(fake)));
   });
 });

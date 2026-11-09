@@ -483,6 +483,10 @@ pub(crate) mod fake {
             self.state().events.clone()
         }
 
+        pub(crate) fn answer(&self, answer: impl Fn(&str) -> Option<String> + Send + 'static) {
+            self.state().answer = Box::new(answer);
+        }
+
         pub(crate) fn fail_writes(&self, fail: bool) {
             self.state().fail_writes = fail;
         }

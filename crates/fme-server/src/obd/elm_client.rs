@@ -3,6 +3,8 @@
 //! completion; callers queue requests and wait for the answer.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use fme_core::contracts::emulator::TrafficDirection;
@@ -71,6 +73,7 @@ enum Message {
 #[derive(Debug, Clone)]
 pub struct ElmClient {
     requests: mpsc::UnboundedSender<Message>,
+    received: Arc<AtomicBool>,
 }
 
 fn lines_of(text: &str) -> Vec<String> {
@@ -91,8 +94,10 @@ fn error(command: &str, reason: ReaderCommandReason) -> ReaderCommandError {
 impl ElmClient {
     pub fn spawn(link: Box<dyn DeviceLink>, options: ElmClientOptions) -> Self {
         let (requests, inbox) = mpsc::unbounded_channel();
+        let received = Arc::new(AtomicBool::new(false));
         let actor = Actor {
             link,
+            received: Arc::clone(&received),
             buffer: String::new(),
             replies: VecDeque::new(),
             log_replies: true,
@@ -100,7 +105,12 @@ impl ElmClient {
             on_link_lost: Some(options.on_link_lost),
         };
         tokio::spawn(actor.run(inbox));
-        Self { requests }
+        Self { requests, received }
+    }
+
+    /// Whether any byte at all has arrived since the client started.
+    pub fn received(&self) -> bool {
+        self.received.load(Ordering::Relaxed)
     }
 
     /// Sends one command and returns the reply lines before the `>` prompt.
@@ -138,6 +148,7 @@ impl ElmClient {
 
 struct Actor {
     link: Box<dyn DeviceLink>,
+    received: Arc<AtomicBool>,
     buffer: String,
     replies: VecDeque<Vec<String>>,
     // Replies are logged as they arrive, so one that comes after its request timed out still shows.
@@ -170,6 +181,9 @@ impl Actor {
     fn receive(&mut self, chunk: Option<Result<String, DeviceLinkError>>) {
         match chunk {
             Some(Ok(text)) => {
+                if !text.is_empty() {
+                    self.received.store(true, Ordering::Relaxed);
+                }
                 self.buffer.push_str(&text);
                 while let Some(prompt) = self.buffer.find('>') {
                     let lines = lines_of(&self.buffer[..prompt]);

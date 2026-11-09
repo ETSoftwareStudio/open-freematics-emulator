@@ -101,7 +101,7 @@ export class ReaderConnectError extends Schema.TaggedError<ReaderConnectError>()
   "ReaderConnectError",
   {
     target: ReaderTarget,
-    reason: Schema.Literals(["open-failed", "no-adapter"]),
+    reason: Schema.Literals(["open-failed", "no-adapter", "bluetooth-stale"]),
   },
 ) {
   override get message(): string {
@@ -110,6 +110,8 @@ export class ReaderConnectError extends Schema.TaggedError<ReaderConnectError>()
         return "Could not reach the OBD-II adapter.";
       case "no-adapter":
         return "The device did not answer like an ELM327 OBD-II adapter.";
+      case "bluetooth-stale":
+        return "The Bluetooth adapter didn't answer. macOS stops serving a Bluetooth serial port after it's closed once. Forget the adapter in System Settings → Bluetooth, pair it again, then connect.";
     }
   }
 }

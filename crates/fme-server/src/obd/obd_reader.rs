@@ -425,16 +425,22 @@ impl ObdReader {
         result
     }
 
+    /// The link, and whether silence on it means macOS stopped serving a Bluetooth port.
     async fn open_link(
         &self,
         target: &ReaderTarget,
-    ) -> Result<Box<dyn DeviceLink>, DeviceLinkError> {
+    ) -> Result<(Box<dyn DeviceLink>, bool), DeviceLinkError> {
         Ok(match target {
-            ReaderTarget::Simulated => Box::new(self.inner.simulated.open_adapter()),
-            ReaderTarget::Serial { path } => Box::new(self.inner.serial_ports.open(path).await?),
-            ReaderTarget::Tcp { host, port } => {
-                Box::new(self.inner.tcp_sockets.open(host, *port).await?)
+            ReaderTarget::Simulated => (Box::new(self.inner.simulated.open_adapter()), false),
+            ReaderTarget::Serial { path } => {
+                let link = self.inner.serial_ports.open(path).await?;
+                let silent_means_stale = link.silent_means_stale();
+                (Box::new(link), silent_means_stale)
             }
+            ReaderTarget::Tcp { host, port } => (
+                Box::new(self.inner.tcp_sockets.open(host, *port).await?),
+                false,
+            ),
         })
     }
 
@@ -460,7 +466,7 @@ impl ObdReader {
             target: target.clone(),
             reason,
         };
-        let link = self
+        let (link, silent_means_stale) = self
             .open_link(target)
             .await
             .map_err(|_| fail(ReaderConnectReason::OpenFailed))?;
@@ -468,8 +474,13 @@ impl ObdReader {
 
         let reset = client.request("ATZ", RequestOptions::default()).await;
         let Some(identity) = reset.ok().and_then(|lines| identify(&lines)) else {
+            let reason = if silent_means_stale && !client.received() {
+                ReaderConnectReason::BluetoothStale
+            } else {
+                ReaderConnectReason::NoAdapter
+            };
             client.close().await;
-            return Err(fail(ReaderConnectReason::NoAdapter));
+            return Err(fail(reason));
         };
         for command in SETUP_COMMANDS {
             if client
@@ -579,6 +590,8 @@ mod tests {
     use fme_core::contracts::emulator::{ConnectTarget, DtcMode};
 
     use super::*;
+    use crate::device::serial_ports::Platform;
+    use crate::device::serial_ports::fake::FakeSystem;
     use crate::device::simulated_device::SimulatedVersion;
     use crate::emulator::emulator_session::EmulatorSession;
 
@@ -815,6 +828,69 @@ mod tests {
         let state = reader.state().borrow().clone();
         assert_eq!(state.connection, ReaderConnection::Disconnected);
         reader.connect(ReaderTarget::Simulated).await.unwrap();
+    }
+
+    fn bluetooth_reader(system: &FakeSystem) -> ObdReader {
+        let simulated = SimulatedDevice::new(SimulatedVersion::V1_2);
+        let serial_ports = SerialPorts::with_system(Platform::MacOs, system.clone());
+        ObdReader::new(serial_ports, TcpSockets, simulated, TrafficLog::new())
+    }
+
+    fn adapter() -> ReaderTarget {
+        ReaderTarget::Serial {
+            path: "/dev/cu.OBDII".to_owned(),
+        }
+    }
+
+    async fn connect_failure(reader: &ObdReader) -> ReaderConnectReason {
+        reader.connect(adapter()).await.unwrap_err().reason
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn says_the_port_went_stale_when_its_first_open_hears_nothing() {
+        let reader = bluetooth_reader(&FakeSystem::silent(true));
+        assert_eq!(
+            connect_failure(&reader).await,
+            ReaderConnectReason::BluetoothStale
+        );
+        let state = reader.state().borrow().clone();
+        let ReaderConnection::Failed { reason, .. } = state.connection else {
+            panic!("unexpected {:?}", state.connection);
+        };
+        assert!(reason.contains("pair it again"), "{reason}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn calls_a_garbled_reply_on_a_first_open_no_adapter() {
+        let system = FakeSystem::new(true, |_| Some("\u{0}\u{ff}".to_owned()));
+        let reader = bluetooth_reader(&system);
+        assert_eq!(
+            connect_failure(&reader).await,
+            ReaderConnectReason::NoAdapter
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn calls_silence_on_a_reused_port_no_adapter() {
+        let system = FakeSystem::new(true, |written| {
+            Some(
+                if written == "ATZ\r" {
+                    "ELM327 v1.5\r\r>"
+                } else {
+                    "\r>"
+                }
+                .to_owned(),
+            )
+        });
+        let reader = bluetooth_reader(&system);
+        reader.connect(adapter()).await.unwrap();
+        reader.disconnect().await;
+        system.answer(|_| None);
+        assert_eq!(
+            connect_failure(&reader).await,
+            ReaderConnectReason::NoAdapter
+        );
+        assert_eq!(system.events(), ["open"]);
     }
 
     #[test]

@@ -172,6 +172,7 @@ string_enum! {
     pub enum ReaderConnectReason {
         OpenFailed => "open-failed",
         NoAdapter => "no-adapter",
+        BluetoothStale => "bluetooth-stale",
     }
 }
 
@@ -180,6 +181,9 @@ impl ReaderConnectReason {
         match self {
             Self::OpenFailed => "Could not reach the OBD-II adapter.",
             Self::NoAdapter => "The device did not answer like an ELM327 OBD-II adapter.",
+            Self::BluetoothStale => {
+                "The Bluetooth adapter didn't answer. macOS stops serving a Bluetooth serial port after it's closed once. Forget the adapter in System Settings → Bluetooth, pair it again, then connect."
+            }
         }
     }
 }

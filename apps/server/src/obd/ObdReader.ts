@@ -130,10 +130,13 @@ const make = Effect.gen(function* () {
 
   const openLink = (target: ReaderTarget, scope: Scope.Scope) =>
     (target._tag === "simulated"
-      ? simulated.openAdapter
+      ? Effect.map(simulated.openAdapter, (link) => ({ ...link, silentMeansStale: false }))
       : target._tag === "serial"
         ? serialPorts.open(target.path)
-        : tcpSockets.open(target.host, target.port)
+        : Effect.map(tcpSockets.open(target.host, target.port), (link) => ({
+            ...link,
+            silentMeansStale: false,
+          }))
     ).pipe(
       Scope.provide(scope),
       Effect.mapError(() => new ReaderConnectError({ target, reason: "open-failed" })),
@@ -231,7 +234,11 @@ const make = Effect.gen(function* () {
           Effect.orElseSucceed(() => undefined),
         );
         if (identity === undefined) {
-          return yield* new ReaderConnectError({ target, reason: "no-adapter" });
+          const stale = link.silentMeansStale && !(yield* client.received);
+          return yield* new ReaderConnectError({
+            target,
+            reason: stale ? "bluetooth-stale" : "no-adapter",
+          });
         }
         // Echo, line feeds and headers off; automatic protocol search.
         for (const command of ["ATE0", "ATL0", "ATS1", "ATH0", "ATSP0"]) {

@@ -171,7 +171,8 @@ Importing does not flash anything. Updating the selected device still requires t
   port through Node's TTY stream instead.
 - On macOS (27.2), `bluetoothd` serves a Bluetooth SPP port (`/dev/cu.OBDII`) once per pairing.
   After the first close, opens still succeed but no byte ever comes back until the adapter is
-  paired again. The server holds those ports open until it stops.
+  paired again. The server holds those ports open until it stops, and says so when the first
+  open of one hears nothing.
 
 ## Layout
 
