@@ -1,5 +1,3 @@
-//! The app menu, laid out as the Electron app lays out its own.
-
 #[cfg(any(debug_assertions, not(target_os = "macos")))]
 use tauri::menu::MenuItem;
 use tauri::menu::{AboutMetadata, CheckMenuItem, Menu, MenuEvent, PredefinedMenuItem, Submenu};

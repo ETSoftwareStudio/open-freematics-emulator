@@ -21,7 +21,7 @@ pub struct EmbeddedServer {
 
 impl EmbeddedServer {
     /// Binds before the window opens, so the page gets a working URL. A server that fails later
-    /// quits the app, as the Electron app does when its server process exits.
+    /// quits the app.
     pub fn start<R: Runtime>(
         app: &AppHandle<R>,
         data_dir: PathBuf,

@@ -1,4 +1,4 @@
-//! The RPC table: each method decodes its payload and calls one service method, as `ws.ts` does.
+//! The RPC table: each method decodes its payload and calls one service method.
 
 use std::sync::Arc;
 

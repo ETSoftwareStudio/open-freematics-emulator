@@ -300,7 +300,7 @@
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
 }
 
-/* The window's title bar drags the window in Electron; its controls stay clickable. */
+/* The title bar drags the window (Chromium's app-region; the Tauri shell scripts it on WebKit). */
 @utility drag-region {
   -webkit-app-region: drag;
   app-region: drag;

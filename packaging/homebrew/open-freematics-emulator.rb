@@ -1,5 +1,5 @@
-# Template for the cask in the Homebrew tap. The Release workflow fills in the version and
-# checksums and pushes it to the tap; don't install it from here.
+# Template for the cask in the Homebrew tap; don't install it from here. No workflow fills it in
+# until the Release workflow publishes the Tauri DMGs, whose names the url below must match.
 cask "open-freematics-emulator" do
   arch arm: "arm64", intel: "x64"
 

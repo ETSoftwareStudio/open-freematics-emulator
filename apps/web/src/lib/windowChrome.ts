@@ -6,8 +6,6 @@ export interface WindowChrome {
   readonly platform: Platform;
   /** macOS draws its traffic lights over the toolbar's leading edge. */
   readonly trafficLights: boolean;
-  /** Windows and Linux draw the window buttons over the toolbar's trailing edge. */
-  readonly windowControlsOverlay: boolean;
   /** The shortcut modifier as the platform writes it: `⌘` or `Ctrl+`. */
   readonly modifierLabel: string;
 }
@@ -23,13 +21,11 @@ const detect = (): WindowChrome => {
     : /win/i.test(source)
       ? "windows"
       : "linux";
-  const electron = /\bElectron\//.test(agent);
-  const desktop = electron || "__TAURI_INTERNALS__" in window;
+  const desktop = "__TAURI_INTERNALS__" in window;
   return {
     desktop,
     platform,
     trafficLights: desktop && platform === "mac",
-    windowControlsOverlay: electron && platform !== "mac",
     modifierLabel: platform === "mac" ? "⌘" : "Ctrl+",
   };
 };

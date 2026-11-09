@@ -53,7 +53,7 @@ pub enum UpdateError {
     #[error(transparent)]
     Failed(#[from] UpdateFirmwareError),
     /// A broken invariant, such as a payload that would address the bootloader: a bug, never a
-    /// request. The transport reports it as a defect, as the TypeScript server dies with one.
+    /// request. The transport reports it as a defect, as an Effect server dies with one.
     #[error("The update stopped unexpectedly.")]
     Defect,
 }

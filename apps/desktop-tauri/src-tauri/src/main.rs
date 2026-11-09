@@ -47,7 +47,7 @@ fn origin_of(url: &Url) -> String {
     }
 }
 
-/// Electron's `userData` directory, so both desktop apps share presets, firmware and settings.
+/// The old Electron app's `userData` directory, so its presets, firmware and settings carry over.
 fn data_dir<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<PathBuf> {
     match std::env::var_os("FME_DATA_DIR").filter(|dir| !dir.is_empty()) {
         Some(dir) => Ok(PathBuf::from(dir)),

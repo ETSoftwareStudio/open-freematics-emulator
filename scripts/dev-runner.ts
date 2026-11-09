@@ -3,38 +3,29 @@ import * as NodeChildProcess from "node:child_process";
 
 const serverPort = process.env.FME_SERVER_PORT ?? "3738";
 const webPort = process.env.PORT ?? "5738";
-const webUrl = `http://localhost:${webPort}`;
-// `--desktop` also opens the Electron window on the dev server, so the UI hot-reloads there too.
-const desktop = process.argv.includes("--desktop");
-// `--rust` serves the API from the Rust server instead, built once and not restarted on changes.
-const rust = process.argv.includes("--rust");
 
 interface Task {
   readonly name: string;
   readonly cwd: string;
-  readonly command?: string;
+  readonly command: string;
   readonly args: ReadonlyArray<string>;
-  readonly env?: Record<string, string>;
 }
 
-if (rust) {
-  const build = NodeChildProcess.spawnSync("cargo", ["build", "-p", "fme-server", "--bin", "fme"], {
-    stdio: "inherit",
-  });
-  if (build.status !== 0) process.exit(build.status ?? 1);
-}
+// The server is built once and not restarted on changes; Vite hot-reloads the web app.
+const build = NodeChildProcess.spawnSync("cargo", ["build", "-p", "fme-server", "--bin", "fme"], {
+  stdio: "inherit",
+});
+if (build.status !== 0) process.exit(build.status ?? 1);
 
 const tasks: ReadonlyArray<Task> = [
-  rust
-    ? { name: "server", cwd: ".", command: "target/debug/fme", args: ["--dev"] }
-    : { name: "server", cwd: "apps/server", args: ["run", "dev"] },
-  { name: "web", cwd: "apps/web", args: ["run", "dev"] },
+  { name: "server", cwd: ".", command: "target/debug/fme", args: ["--dev"] },
+  { name: "web", cwd: "apps/web", command: "vp", args: ["run", "dev"] },
 ];
 
 const spawnTask = (task: Task) => {
-  const child = NodeChildProcess.spawn(task.command ?? "vp", task.args, {
+  const child = NodeChildProcess.spawn(task.command, task.args, {
     cwd: task.cwd,
-    env: { ...process.env, FME_SERVER_PORT: serverPort, PORT: webPort, ...task.env },
+    env: { ...process.env, FME_SERVER_PORT: serverPort, PORT: webPort },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const prefix = `[${task.name}] `;
@@ -67,34 +58,4 @@ function shutdown(code: number) {
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
-process.stdout.write(`[dev-runner] web ${webUrl} · server :${serverPort}\n`);
-
-async function waitForWeb(): Promise<boolean> {
-  if (stopping) return false;
-  const up = await fetch(webUrl).then(
-    (response) => response.ok,
-    () => false,
-  );
-  if (up) return true;
-  await new Promise((resolve) => setTimeout(resolve, 250));
-  return waitForWeb();
-}
-
-if (desktop) {
-  const build = NodeChildProcess.spawnSync("vp", ["run", "build", "--main-only"], {
-    cwd: "apps/desktop",
-    stdio: "inherit",
-  });
-  if (build.status !== 0) shutdown(build.status ?? 1);
-  // Electron shows a blank window if it loads before Vite is listening.
-  if (await waitForWeb()) {
-    children.push(
-      spawnTask({
-        name: "desktop",
-        cwd: "apps/desktop",
-        args: ["run", "start"],
-        env: { FME_DESKTOP_URL: webUrl },
-      }),
-    );
-  }
-}
+process.stdout.write(`[dev-runner] web http://localhost:${webPort} · server :${serverPort}\n`);

@@ -1,5 +1,5 @@
-//! The appearance the user picked, kept in `settings.json` in the data dir as Electron keeps it,
-//! and applied to the native window so the page only follows `prefers-color-scheme`.
+//! The appearance the user picked, kept in `settings.json` in the data dir (where the old Electron
+//! app kept it too), and applied to the native window so the page follows `prefers-color-scheme`.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};

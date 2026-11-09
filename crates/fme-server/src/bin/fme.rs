@@ -1,4 +1,4 @@
-//! `fme`: the server on its own, with the flags and environment of `apps/server/src/bin.ts`.
+//! `fme`: the server on its own, as the npm package and `vp run dev` run it.
 
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};

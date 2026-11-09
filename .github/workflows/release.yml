@@ -55,14 +55,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec vp run check
 
-  desktop:
-    needs: check
-    uses: ./.github/workflows/desktop.yml
-    with:
-      sign: true
-    # Only the macOS signing secrets are read; without them the app is ad-hoc signed.
-    secrets: inherit
-
   # One platform package per target, each with the `fme` binary built on its own runner (macOS
   # x64 cross-compiles), and the main package (launcher + web app) from the Linux x64 runner. No
   # Rust cache here, so a release builds from the lockfile alone.
@@ -122,27 +114,20 @@ jobs:
           path: npm-dist/*.tgz
           if-no-files-found: error
 
+  # The desktop installers aren't released yet, so the GitHub Release carries the notes only.
   github-release:
     name: GitHub Release
-    needs: [release-please, desktop, npm-package]
+    needs: [release-please, npm-package]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: desktop-*
-          path: dist
-          merge-multiple: true
-      - name: Upload the installers and publish the draft
+      - name: Publish the draft
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
           VERSION: ${{ needs.release-please.outputs.version }}
         run: |
-          cd dist
-          sha256sum -- * > SHA256SUMS.txt
-          gh release upload "$TAG" ./* --repo "$GITHUB_REPOSITORY" --clobber
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest \
             --title "Open Freematics Emulator $VERSION"
 
@@ -183,38 +168,3 @@ jobs:
             publish "open-freematics-emulator-$platform"
           done
           publish open-freematics-emulator
-
-  homebrew:
-    name: Update the Homebrew tap
-    needs: [release-please, github-release]
-    if: vars.HOMEBREW_TAP != ''
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          sparse-checkout: packaging/homebrew
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: desktop-macOS
-          path: dist
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ vars.HOMEBREW_TAP }}
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: tap
-      - name: Write and push the cask
-        env:
-          VERSION: ${{ needs.release-please.outputs.version }}
-        run: |
-          arm64=$(sha256sum "dist/open-freematics-emulator-$VERSION-mac-arm64.dmg" | cut -d' ' -f1)
-          x64=$(sha256sum "dist/open-freematics-emulator-$VERSION-mac-x64.dmg" | cut -d' ' -f1)
-          mkdir -p tap/Casks
-          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256_ARM64@/$arm64/" -e "s/@SHA256_X64@/$x64/" \
-            -e '1,2d' packaging/homebrew/open-freematics-emulator.rb > tap/Casks/open-freematics-emulator.rb
-          cd tap
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Casks/open-freematics-emulator.rb
-          git commit -m "open-freematics-emulator $VERSION"
-          git push

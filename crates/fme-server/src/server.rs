@@ -1,4 +1,4 @@
-//! Builds the services over a data dir and serves them over HTTP, as `server.ts` does.
+//! Builds the services over a data dir and serves them over HTTP.
 
 use std::future::{Future, IntoFuture};
 use std::net::SocketAddr;

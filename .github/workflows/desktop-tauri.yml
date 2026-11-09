@@ -95,7 +95,7 @@ jobs:
           else
             unset APPLE_API_KEY_ID APPLE_API_ISSUER
           fi
-          pnpm exec vp run desktop:tauri:dist --target ${{ matrix.target }}
+          pnpm exec vp run desktop:dist --target ${{ matrix.target }}
       - name: Smoke-test the packaged app
         if: matrix.smoke && runner.os != 'Linux'
         run: pnpm exec vp run @fme/desktop-tauri#smoke --target ${{ matrix.target }}

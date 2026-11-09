@@ -1,4 +1,4 @@
-// Gives the page what Electron's preload gives it: the server URL and three appearance calls.
+// Gives the page `window.fme` (`lib/desktopBridge.ts`): the server URL and three appearance calls.
 (() => {
   const internals = () => window.__TAURI_INTERNALS__;
   const event = "__FME_APPEARANCE_EVENT__";
