@@ -15,8 +15,8 @@ PR title as the commit, so the **PR title** check holds titles to the same forma
 
 1. Merge work into `main` as usual. release-please keeps one PR open,
    `chore(main): release X.Y.Z`, with the next version in `apps/desktop-tauri/package.json` (it
-   versions the desktop app, through `tauri.conf.json`, and the npm packages) and the new
-   `CHANGELOG.md` entry. CI runs on it too.
+   versions the desktop app, through `tauri.conf.json`, the npm packages and the About popover)
+   and the new `CHANGELOG.md` entry. CI runs on it too.
 2. When you want to ship, merge that PR.
 3. Watch **Actions → Release**. release-please creates the tag and a draft GitHub Release with the
    changelog as notes. The workflow then runs the checks and, in parallel:
