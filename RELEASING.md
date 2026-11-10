@@ -44,6 +44,12 @@ To force a version, add a commit to `main` with `Release-As: 1.2.0` in its body.
 If a job fails after the release PR is merged, fix the cause and use **Re-run failed jobs** on that
 run. The release stays a draft until every installer and npm package is built and smoke-tested.
 
+A re-run uses the workflow file from the release's commit, so it can't pick up a fix to the
+workflow itself. If the GitHub Release is out but npm isn't, fix the workflow on `main`, then run
+**Actions → Release → Run workflow** with the release's tag (`v1.2.0`). That run checks out the
+tag, runs the checks, builds and smoke-tests the npm packages again, and publishes the ones npm
+doesn't have yet. It leaves the GitHub Release, the installers and the Homebrew cask alone.
+
 ## One-time setup
 
 ### Repository
@@ -72,7 +78,9 @@ version already on npm is skipped, so **Re-run failed jobs** can finish a half-d
 Publishing goes through npm's trusted publishing: npmjs.com trusts
 `ETSoftwareStudio/open-freematics-emulator`'s `release.yml` (with **Allow npm publish** on), so no
 npm token is stored anywhere. Configure it for **each of the seven packages** under the package →
-Settings → Trusted publishing.
+Settings → Trusted publishing, or with
+`npm trust github <package> --repo ETSoftwareStudio/open-freematics-emulator --file release.yml --allow-publish`
+(npm 11.15 or later).
 
 Trusted publishing only works for a package that already exists, so before the first release that
 ships them, create the six platform packages from your own npm account: for each name, publish a
@@ -108,8 +116,9 @@ The cask template is [packaging/homebrew](packaging/homebrew/open-freematics-emu
 
 The Desktop (Tauri) workflow signs the Mac app with a Developer ID and notarizes it when it runs
 with `sign` (the Release workflow always sets it) and these secrets exist, so it opens without a
-Gatekeeper warning. Without them the app is ad-hoc signed and users must click **Open Anyway** in
-System Settings → Privacy & Security. Only release and manually dispatched runs see the secrets:
+Gatekeeper warning. It then notarizes and staples the `.dmg` as well, because Tauri only
+notarizes the app inside. Without the secrets the app is ad-hoc signed and users must click
+**Open Anyway** in System Settings → Privacy & Security. Only release and manually dispatched runs see the secrets:
 push and pull request builds are never signed. Signed builds skip the Rust cache.
 
 1. **Developer ID Application certificate.** Creating one needs the Account Holder role on the
@@ -134,9 +143,10 @@ push and pull request builds are never signed. Signed builds skip the Rust cache
    ```
 
 3. **Try it:** `gh workflow run desktop-tauri.yml -f sign=true`, download the
-   `desktop-tauri-aarch64-apple-darwin` artifact, mount the `.dmg` and run
-   `spctl -a -vv "/Volumes/…/Open Freematics Emulator.app"`. It should say
-   `accepted` and `source=Notarized Developer ID`.
+   `desktop-tauri-aarch64-apple-darwin` artifact, run
+   `spctl -a -t open --context context:primary-signature -vv <file>.dmg`, then mount it and run
+   `spctl -a -vv "/Volumes/…/Open Freematics Emulator.app"`. Both should say `accepted` and
+   `source=Notarized Developer ID`.
 
 Delete the `.p12` and `.p8` from your disk once they are stored as secrets.
 
