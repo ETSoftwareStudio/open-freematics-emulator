@@ -138,6 +138,33 @@ jobs:
             unset APPLE_API_KEY_ID APPLE_API_ISSUER
           fi
           pnpm exec vp run desktop:dist --target ${{ matrix.target }}
+      # Tauri notarizes the app but not the disk image around it, which Gatekeeper then rejects.
+      - name: Notarize the disk image
+        if: inputs.sign && runner.os == 'macOS'
+        env:
+          BUNDLE: target/${{ matrix.target }}/release/bundle/dmg
+          HAS_CERTIFICATE: ${{ secrets.MAC_CERTIFICATE != '' }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          if [ "$HAS_CERTIFICATE" != true ] || [ -z "$APPLE_API_KEY_P8" ]; then
+            echo "Not signed with a Developer ID; the disk image stays unnotarized"
+            exit 0
+          fi
+          key="$RUNNER_TEMP/notary-key.p8"
+          printf '%s' "$APPLE_API_KEY_P8" > "$key"
+          for dmg in "$BUNDLE"/*.dmg; do
+            status=$(xcrun notarytool submit "$dmg" --key "$key" --key-id "$APPLE_API_KEY_ID" \
+              --issuer "$APPLE_API_ISSUER" --wait --output-format json | jq -r .status)
+            if [ "$status" != Accepted ]; then
+              echo "Notarization of $dmg ended as $status" >&2
+              exit 1
+            fi
+            xcrun stapler staple "$dmg"
+            spctl -a -t open --context context:primary-signature -v "$dmg"
+          done
+          rm -f "$key"
       - name: Smoke-test the packaged app
         if: matrix.smoke && runner.os != 'Linux'
         run: pnpm exec vp run @fme/desktop-tauri#smoke --target ${{ matrix.target }}

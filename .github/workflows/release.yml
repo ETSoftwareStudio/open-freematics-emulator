@@ -2,10 +2,16 @@ name: Release
 
 # release-please keeps a release PR open on main; merging it creates a draft GitHub Release and
 # its tag, and the jobs below build, publish and un-draft it. Publishing lives here because a tag
-# created with GITHUB_TOKEN starts no other workflow. See RELEASING.md.
+# created with GITHUB_TOKEN starts no other workflow. Started by hand, it builds an existing
+# release's npm packages again and publishes the ones npm doesn't have yet. See RELEASING.md.
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release whose npm packages to publish, e.g. v1.1.0
+        required: true
 
 permissions:
   contents: read
@@ -13,6 +19,7 @@ permissions:
 jobs:
   release-please:
     name: release-please
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     concurrency:
       group: release-please
@@ -36,15 +43,45 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref release-please--branches--main
 
+  # What this run ships: the release release-please just created, or the tag it was started with.
+  release:
+    name: Release version
+    needs: release-please
+    if: ${{ !cancelled() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      everything: ${{ steps.version.outputs.everything }}
+    steps:
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.event_name == 'push' && needs.release-please.outputs.tag_name || inputs.tag }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft \
+              --jq 'if .isDraft then error("draft release") else empty end'
+            echo "everything=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "everything=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
   check:
     name: Check
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: release
+    # release-please is skipped in a run started by hand, and a skip propagates without this.
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A run started by hand builds the tag; a release builds the commit release-please tagged.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -57,7 +94,8 @@ jobs:
 
   desktop:
     name: Desktop
-    needs: check
+    needs: [release, check]
+    if: ${{ !cancelled() && needs.check.result == 'success' && needs.release.outputs.everything == 'true' }}
     uses: ./.github/workflows/desktop-tauri.yml
     with:
       sign: true
@@ -75,7 +113,8 @@ jobs:
   # Rust cache here, so a release builds from the lockfile alone.
   npm-package:
     name: npm package (${{ matrix.target }})
-    needs: check
+    needs: [release, check]
+    if: ${{ !cancelled() && needs.check.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -101,6 +140,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A run started by hand builds the tag; a release builds the commit release-please tagged.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -131,7 +172,7 @@ jobs:
 
   github-release:
     name: GitHub Release
-    needs: [release-please, desktop, npm-package]
+    needs: [release, desktop, npm-package]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -144,8 +185,8 @@ jobs:
       - name: Upload the installers and publish the draft
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
-          VERSION: ${{ needs.release-please.outputs.version }}
+          TAG: ${{ needs.release.outputs.tag }}
+          VERSION: ${{ needs.release.outputs.version }}
         run: |
           cd dist
           # Each of the six targets ships its installers under this release's version.
@@ -168,7 +209,9 @@ jobs:
 
   npm:
     name: Publish to npm
-    needs: [release-please, github-release]
+    needs: [release, npm-package, github-release]
+    # A full release publishes after its GitHub Release; a run started by hand has none to wait for.
+    if: ${{ !cancelled() && needs.npm-package.result == 'success' && (needs.github-release.result == 'success' || needs.release.outputs.everything == 'false') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -190,7 +233,7 @@ jobs:
       # A version that's already on npm is skipped, so a re-run finishes a half-done publish.
       - name: Publish
         env:
-          VERSION: ${{ needs.release-please.outputs.version }}
+          VERSION: ${{ needs.release.outputs.version }}
         run: |
           publish() {
             if curl -fs -o /dev/null "https://registry.npmjs.org/$1/$VERSION"; then
@@ -207,7 +250,7 @@ jobs:
 
   homebrew:
     name: Update the Homebrew tap
-    needs: [release-please, github-release]
+    needs: [release, github-release]
     if: vars.HOMEBREW_TAP != ''
     runs-on: ubuntu-latest
     steps:
@@ -227,7 +270,7 @@ jobs:
           path: tap
       - name: Write and push the cask
         env:
-          VERSION: ${{ needs.release-please.outputs.version }}
+          VERSION: ${{ needs.release.outputs.version }}
         run: |
           arm64=$(sha256sum "dist/open-freematics-emulator-$VERSION-mac-arm64.dmg" | cut -d' ' -f1)
           x64=$(sha256sum "dist/open-freematics-emulator-$VERSION-mac-x64.dmg" | cut -d' ' -f1)
