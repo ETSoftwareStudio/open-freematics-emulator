@@ -82,8 +82,24 @@ describe("gauge geometry", () => {
 
   it("finds the zone a value sits in", () => {
     const zones = [{ min: 6500, max: 8000, tone: "critical" as const }];
-    expect(zoneAt(zones, 7000)).toBe("critical");
-    expect(zoneAt(zones, 3000)).toBeUndefined();
+    expect(zoneAt(zones, 7000, rpm)).toBe("critical");
+    expect(zoneAt(zones, 3000, rpm)).toBeUndefined();
+  });
+
+  it("gives a value past the display range the zone at that end", () => {
+    const hot = [
+      { min: 105, max: 115, tone: "warning" as const },
+      { min: 115, max: 130, tone: "critical" as const },
+    ];
+    expect(zoneAt(hot, 140, coolant)).toBe("critical");
+    expect(zoneAt(hot, 6, coolant)).toBeUndefined();
+    const low = [
+      { min: 8, max: 11.5, tone: "critical" as const },
+      { min: 14.8, max: 16, tone: "warning" as const },
+    ];
+    expect(zoneAt(low, 5, { min: 8, max: 16 })).toBe("critical");
+    expect(zoneAt(low, 20, { min: 8, max: 16 })).toBe("warning");
+    expect(zoneAt(low, 13, { min: 8, max: 16 })).toBeUndefined();
   });
 
   it("snaps to the step inside the range", () => {

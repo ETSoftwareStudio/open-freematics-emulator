@@ -170,7 +170,7 @@ export function ClusterPanel({ className }: { className?: string }) {
     value: valueOf(s),
     reading: readingBack ? reader.readings[s.definition.id] : undefined,
   });
-  const toneOf = (s: Spec) => zoneAt(s.zones ?? [], valueOf(s));
+  const toneOf = (s: Spec) => zoneAt(s.zones ?? [], valueOf(s), s.range);
   const odometer = state.pids[ODOMETER] ?? 0;
   // Container units: the dash is a size container, so dials fit its width and its height.
   // The dials stay dark in a light window, on a face painted behind the SVG; isolate keeps the

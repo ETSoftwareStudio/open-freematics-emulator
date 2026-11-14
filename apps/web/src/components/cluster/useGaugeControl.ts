@@ -3,7 +3,14 @@ import type * as React from "react";
 import { useRef, useState } from "react";
 import { formatPidValue, usePidControl } from "../emulator/pidControl";
 import { type GaugeRange, keyedValue, snapToStep } from "./gaugeGeometry";
-import { type EditorExit, exitTarget, ghostValue, parseTyped, stepValue } from "./valueEditing";
+import {
+  type EditorExit,
+  exitTarget,
+  ghostValue,
+  parseTyped,
+  snapToPid,
+  stepValue,
+} from "./valueEditing";
 
 /** Pointer movement below this many pixels is a click: it focuses the gauge without moving it. */
 const DRAG_THRESHOLD = 4;
@@ -49,7 +56,7 @@ export function useGaugeControl({
 
   /** Applies a step at once, like a drag: the needle moves, the value is sent, the text follows. */
   const stepFrom = (from: number, steps: number) => {
-    const next = clampPidValue(definition, stepValue(from, steps, range, step));
+    const next = stepValue(from, steps, definition, step);
     change(next);
     setEdit((current) => current && { ...current, text: formatPidValue(definition, next) });
     return next;
@@ -80,8 +87,8 @@ export function useGaugeControl({
       role: "slider",
       tabIndex: 0,
       "aria-label": definition.name,
-      "aria-valuemin": range.min,
-      "aria-valuemax": range.max,
+      "aria-valuemin": definition.min,
+      "aria-valuemax": definition.max,
       "aria-valuenow": shown,
       "aria-valuetext": `${formatted} ${definition.unit}`,
       onKeyDown: (event: React.KeyboardEvent) => {
@@ -94,7 +101,7 @@ export function useGaugeControl({
         if (next === undefined) return;
         event.preventDefault();
         // Held keys repeat faster than the server echoes, so steps build on the draft until keyup.
-        change(snapToStep(next, range, step));
+        change(snapToPid(definition, next, step));
       },
       onKeyUp: () => {
         if (dragging) void commit(shown);

@@ -88,8 +88,15 @@ export const minorTicks = (ticks: ReadonlyArray<number>, step: number, divisions
       ),
     );
 
-export const zoneAt = (zones: ReadonlyArray<GaugeZone>, value: number) =>
-  zones.find((zone) => value >= zone.min && value <= zone.max)?.tone;
+/** The zone a value is in; a value past either end of the display range gets the zone at that end. */
+export const zoneAt = (
+  zones: ReadonlyArray<GaugeZone>,
+  value: number,
+  { min, max }: GaugeRange,
+) => {
+  const pegged = Math.min(max, Math.max(min, value));
+  return zones.find((zone) => pegged >= zone.min && pegged <= zone.max)?.tone;
+};
 
 export const snapToStep = (value: number, { min, max }: GaugeRange, step: number) =>
   Math.min(max, Math.max(min, Math.round(value / step) * step));

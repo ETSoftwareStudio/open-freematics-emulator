@@ -54,7 +54,9 @@ at once like a drag, typed text only previews as a dotted ghost until Enter, and
 the value from before editing (`valueEditing.ts` holds the tested rules).
 Dial geometry lives in `gaugeGeometry.ts` and is unit-tested; a gauge's display range and zones are
 UI choices and may be narrower than what the PID can encode, so the PID list stays the place for
-exact values. PID controls share `usePidControl` for drafts and send de-duplication.
+exact values. The pointer stays inside the display range; keys and steppers move inside the PID's
+limits, so a value outside the dial steps from where it is.
+PID controls share `usePidControl` for drafts and send de-duplication.
 
 The cluster follows the window, except the two round dials, which stay dark in both themes: in a
 light window each sits on a dark face with a light bezel ring (`--dial-face`, `--dial-shadow`).

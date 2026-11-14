@@ -1,3 +1,4 @@
+import { type PidDefinition, clampPidValue } from "@fme/shared/pids";
 import { type GaugeRange, snapToStep } from "./gaugeGeometry";
 
 const parts = new Intl.NumberFormat().formatToParts(1000.5);
@@ -12,9 +13,13 @@ export const parseTyped = (text: string) => {
   return Number.isFinite(value) ? value : null;
 };
 
-/** Moves a value by `steps` of `step`, snapped to the step and kept in the gauge's range. */
-export const stepValue = (value: number, steps: number, range: GaugeRange, step: number) =>
-  snapToStep(value + steps * step, range, step);
+/** Snaps a keyboard or stepper move to the step, inside what the PID encodes, not the dial's range. */
+export const snapToPid = (definition: PidDefinition, value: number, step: number) =>
+  clampPidValue(definition, snapToStep(value, definition, step));
+
+/** Moves a value by `steps` of `step`. */
+export const stepValue = (value: number, steps: number, definition: PidDefinition, step: number) =>
+  snapToPid(definition, value + steps * step, step);
 
 /** Where the ghost needle points: the typed value, pegged to the range, unless it is the shown one. */
 export const ghostValue = (typed: number | null, shown: number, { min, max }: GaugeRange) =>
