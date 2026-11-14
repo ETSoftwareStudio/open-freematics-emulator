@@ -41,7 +41,7 @@ export function Readout({
     },
   });
   const { shown, dragging, ghost } = control;
-  const tone = zoneAt(zones, shown);
+  const tone = zoneAt(zones, shown, range);
   const readbackMatches = reading !== undefined && readingMatches(definition, value, reading);
 
   return (

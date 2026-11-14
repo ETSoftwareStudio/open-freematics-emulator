@@ -128,7 +128,7 @@ export function Gauge({
               const angle = valueToAngle(tick, range);
               const outer = polar(C, R, angle);
               const inner = polar(C, R - 7, angle);
-              const tone = zoneAt(zones, tick);
+              const tone = zoneAt(zones, tick, range);
               return (
                 <line
                   key={tick}
@@ -151,7 +151,7 @@ export function Gauge({
               const outer = polar(C, R, angle);
               const inner = polar(C, R - 16, angle);
               const label = polar(C, R - (crowded ? 38 : 36), angle);
-              const tone = zoneAt(zones, tick);
+              const tone = zoneAt(zones, tick, range);
               return (
                 <g key={tick}>
                   <line
