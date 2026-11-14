@@ -69,8 +69,14 @@ errors implement `RpcError` in `fme-core` with `typed_errors!`. Wire rules:
   closes the socket (1001); a `null` message closes it (1011).
 
 `http.rs` serves `/ws`, `/api/health` and the built web app (Effect's static server rules and
-MIME types) behind the loopback same-origin guard. The `fme` binary takes `--host`, `--port`,
-`--data-dir`, `--web-root`, `--app-origin` and `--dev` (no web app; Vite serves it).
+MIME types) behind the loopback same-origin guard. The guard refuses a request unless the
+connection comes from a loopback address, the `Host` header names a loopback host, and the
+`Origin`, when there is one, is the server's own or the desktop window's. `Server::serve` gives
+the guard the peer address; a router served any other way refuses everything. Every response
+carries `Content-Security-Policy: frame-ancestors 'none'` and `X-Content-Type-Options: nosniff`,
+so no other page can frame the web app. The `fme` binary takes `--host` (a loopback address only:
+`127.0.0.1` or `::1`), `--port`, `--data-dir`, `--web-root`, `--app-origin` and `--dev` (no web
+app; Vite serves it).
 `server::Server` binds first (port 0 picks a free one) and serves until a shutdown future
 resolves. It then waits for a running firmware update (`FirmwareUpdater::shut_down`, which also
 refuses new ones; `SHUTDOWN_TIMEOUT` bounds the wait), and closes the device links and the macOS
@@ -79,8 +85,9 @@ Tauri app (`apps/desktop-tauri`) runs it in-process that way and waits as long w
 
 ## Checking
 
-`vp run rs:check` runs `cargo fmt --check`, clippy with warnings denied, and the tests.
-`vp run check` includes it. `vp run dev` builds `fme` and runs it with `--dev` next to Vite.
+`vp run rs:check` runs `cargo fmt --check`, clippy with warnings denied, and the tests, the last
+two with `--locked`, so a stale `Cargo.lock` fails the check. `rust-toolchain.toml` pins the
+compiler for rustup, which CI and releases use. `vp run check` includes it. `vp run dev` builds `fme` and runs it with `--dev` next to Vite.
 
 The wire itself is pinned by `crates/fme-server/tests`. `rpc_methods.rs` drives every RPC through
 one `effect_rpc::Connection` on the simulated device and paused time, as the web client's

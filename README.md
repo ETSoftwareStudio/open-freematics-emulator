@@ -53,7 +53,8 @@ warns the first time you run it: click **More info → Run anyway**.
 
 ## Quick start
 
-Needs Node.js 24 and a Rust toolchain (on Linux also `libudev-dev`).
+Needs Node.js 24 and a Rust toolchain (on Linux also `libudev-dev`). With rustup, cargo installs
+the version `rust-toolchain.toml` pins.
 
 ```sh
 vp install

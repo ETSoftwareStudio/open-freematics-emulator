@@ -29,6 +29,8 @@ jobs:
       - name: Install the serial port library the Rust server links
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - run: pnpm install --frozen-lockfile
+      # Installs the compiler rust-toolchain.toml pins.
+      - run: rustup toolchain install
       - run: pnpm exec vp run check
 
   npm-package:
@@ -58,6 +60,8 @@ jobs:
       - name: Install the serial port library the Rust server links
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      # Installs the compiler rust-toolchain.toml pins; the target then goes onto that one.
+      - run: rustup toolchain install
       - run: rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:

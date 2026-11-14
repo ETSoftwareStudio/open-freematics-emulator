@@ -35,6 +35,7 @@ on:
       - "packages/**"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "rust-toolchain.toml"
       - "pnpm-lock.yaml"
       - ".github/workflows/desktop-tauri.yml"
   pull_request:
@@ -45,6 +46,7 @@ on:
       - "packages/**"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "rust-toolchain.toml"
       - "pnpm-lock.yaml"
       - ".github/workflows/desktop-tauri.yml"
 
@@ -103,6 +105,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libudev-dev patchelf xvfb
+      # Installs the compiler rust-toolchain.toml pins; the target then goes onto that one.
+      - run: rustup toolchain install
       - run: rustup target add ${{ matrix.target }}
       # Signed builds skip the cache, so what gets signed builds from the lockfile alone.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -112,18 +116,19 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # `vp run rs:check` skips the shell, which needs the webview libraries installed above.
       - name: Lint the Tauri shell
-        run: cargo clippy -p fme-desktop --target ${{ matrix.target }} -- -D warnings
+        run: cargo clippy --locked -p fme-desktop --target ${{ matrix.target }} -- -D warnings
       - name: Package
         shell: bash
         env:
           # Not SIGN: linuxdeploy's AppImage plugin GPG-signs, and fails, whenever SIGN is set at all.
           MAC_SIGN: ${{ inputs.sign && runner.os == 'macOS' }}
-          MAC_CERTIFICATE: ${{ inputs.sign && secrets.MAC_CERTIFICATE || '' }}
-          MAC_CERTIFICATE_PASSWORD: ${{ inputs.sign && secrets.MAC_CERTIFICATE_PASSWORD || '' }}
-          MAC_SIGNING_IDENTITY: ${{ inputs.sign && secrets.MAC_SIGNING_IDENTITY || '' }}
-          APPLE_API_KEY_P8: ${{ inputs.sign && secrets.APPLE_API_KEY_P8 || '' }}
-          APPLE_API_KEY_ID: ${{ inputs.sign && secrets.APPLE_API_KEY_ID || '' }}
-          APPLE_API_ISSUER: ${{ inputs.sign && secrets.APPLE_API_ISSUER || '' }}
+          # Only the macOS runners get the signing secrets; the other builds have no use for them.
+          MAC_CERTIFICATE: ${{ inputs.sign && runner.os == 'macOS' && secrets.MAC_CERTIFICATE || '' }}
+          MAC_CERTIFICATE_PASSWORD: ${{ inputs.sign && runner.os == 'macOS' && secrets.MAC_CERTIFICATE_PASSWORD || '' }}
+          MAC_SIGNING_IDENTITY: ${{ inputs.sign && runner.os == 'macOS' && secrets.MAC_SIGNING_IDENTITY || '' }}
+          APPLE_API_KEY_P8: ${{ inputs.sign && runner.os == 'macOS' && secrets.APPLE_API_KEY_P8 || '' }}
+          APPLE_API_KEY_ID: ${{ inputs.sign && runner.os == 'macOS' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ inputs.sign && runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
           # Runs linuxdeploy's AppImage tools without FUSE on the runner.
           APPIMAGE_EXTRACT_AND_RUN: ${{ runner.os == 'Linux' && '1' || '' }}
         run: |
@@ -137,7 +142,7 @@ jobs:
           else
             unset APPLE_API_KEY_ID APPLE_API_ISSUER
           fi
-          pnpm exec vp run desktop:dist --target ${{ matrix.target }}
+          pnpm exec vp run desktop:dist --target ${{ matrix.target }} -- --locked
       # Tauri notarizes the app but not the disk image around it, which Gatekeeper then rejects.
       - name: Notarize the disk image
         if: inputs.sign && runner.os == 'macOS'

@@ -1,6 +1,7 @@
 //! `fme`: the server on its own, as the npm package and `vp run dev` run it.
 
 use std::io::IsTerminal;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -93,8 +94,17 @@ fn options(args: Args) -> Result<ServerOptions, String> {
         || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/web/dist"),
         PathBuf::from,
     );
+    let host = args.host.unwrap_or_else(|| "127.0.0.1".to_owned());
+    if !host
+        .parse::<IpAddr>()
+        .is_ok_and(|address| address.is_loopback())
+    {
+        return Err(format!(
+            "'{host}' isn't a loopback address; the server only serves this machine (use 127.0.0.1 or ::1)"
+        ));
+    }
     Ok(ServerOptions {
-        host: args.host.unwrap_or_else(|| "127.0.0.1".to_owned()),
+        host,
         port,
         web_root: (!args.dev).then(|| absolute(&web_root)),
         data_dir: absolute(&args.data_dir.map_or_else(default_data_dir, PathBuf::from)),
@@ -195,5 +205,21 @@ mod tests {
         assert!(dev.data_dir.is_absolute());
         assert_eq!(dev.host, "127.0.0.1");
         assert!(options(parse(&["--port", "http"]).unwrap()).is_err());
+    }
+
+    #[test]
+    fn listens_on_loopback_addresses_only() {
+        for (host, allowed) in [
+            ("127.0.0.1", true),
+            ("::1", true),
+            ("0.0.0.0", false),
+            ("::", false),
+            ("192.168.1.20", false),
+            ("localhost", false),
+            ("example.com", false),
+        ] {
+            let parsed = options(parse(&["--host", host, "--data-dir", "data"]).unwrap());
+            assert_eq!(parsed.is_ok(), allowed, "{host}");
+        }
     }
 }
