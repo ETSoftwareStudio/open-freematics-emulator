@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.1](https://github.com/ETSoftwareStudio/open-freematics-emulator/compare/v1.1.0...v1.1.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **firmware:** protect a running firmware update ([#8](https://github.com/ETSoftwareStudio/open-freematics-emulator/issues/8)) ([3eeed26](https://github.com/ETSoftwareStudio/open-freematics-emulator/commit/3eeed26e7ee6404bb7d5b5c5090f0fa7cefd0aec))
+* harden the local server guard and the release workflows ([#11](https://github.com/ETSoftwareStudio/open-freematics-emulator/issues/11)) ([77f0f48](https://github.com/ETSoftwareStudio/open-freematics-emulator/commit/77f0f48d3b3a640a993139f0a65066b39764ba0a))
+* **server:** keep the session state in step with the device ([#9](https://github.com/ETSoftwareStudio/open-freematics-emulator/issues/9)) ([b04733c](https://github.com/ETSoftwareStudio/open-freematics-emulator/commit/b04733ced0221a3cbff85e95a4b2a16931cd3372))
+* **web:** show server offline, stop watch list fights, fix gauge and port limits ([#12](https://github.com/ETSoftwareStudio/open-freematics-emulator/issues/12)) ([8c67aaa](https://github.com/ETSoftwareStudio/open-freematics-emulator/commit/8c67aaa1ff3508e5c23d2b521c039d8e0c3e8c93))
+
 ## [1.1.0](https://github.com/ETSoftwareStudio/open-freematics-emulator/compare/v1.0.2...v1.1.0) (2026-11-09)
 
 
