@@ -716,6 +716,20 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn reads_every_stored_code_from_a_multi_frame_reply() {
+        let fixture = connected().await;
+        let stored = ["P0105", "P0300", "P0420", "P0171", "C0300"];
+        fixture
+            .session
+            .set_dtcs(DtcMode::Stored, codes(&stored))
+            .await
+            .unwrap();
+        fixture.reader.read_dtcs().await.unwrap();
+        let state = fixture.reader.state().borrow().clone();
+        assert_eq!(state.dtcs.as_deref(), Some(&stored.map(str::to_owned)[..]));
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn clears_codes_from_the_vehicle_side_with_mode_04() {
         let fixture = connected().await;
         fixture

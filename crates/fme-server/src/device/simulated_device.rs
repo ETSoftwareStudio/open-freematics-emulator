@@ -356,10 +356,39 @@ fn encode_dtc(code: &str) -> [u8; 2] {
     [((letter << 6) | (value >> 8)) as u8, (value & 0xff) as u8]
 }
 
-fn list_codes(reply: &str, codes: &[String]) -> String {
-    let mut parts = vec![reply.to_owned(), hex(codes.len() as u32)];
-    parts.extend(codes.iter().flat_map(|code| encode_dtc(code)).map(hex));
+fn join_hex(bytes: &[u32]) -> String {
+    let parts: Vec<String> = bytes.iter().copied().map(hex).collect();
     parts.join(" ")
+}
+
+/// What an ELM327 prints for a CAN reply longer than one frame: the payload length, then the
+/// ISO-TP frames, numbered.
+fn iso_tp_frames(length: usize, bytes: &[u32]) -> String {
+    let mut frames = vec![
+        format!("{length:03X}"),
+        format!("0: {}", join_hex(&bytes[..bytes.len().min(6)])),
+    ];
+    for (n, chunk) in bytes[6.min(bytes.len())..].chunks(7).enumerate() {
+        frames.push(format!("{}: {}", n + 1, join_hex(chunk)));
+    }
+    frames.join("\r")
+}
+
+fn list_codes(reply: u32, codes: &[String]) -> String {
+    let mut bytes = vec![reply, codes.len() as u32];
+    bytes.extend(
+        codes
+            .iter()
+            .flat_map(|code| encode_dtc(code))
+            .map(u32::from),
+    );
+    let length = bytes.len();
+    if length <= 7 {
+        return join_hex(&bytes);
+    }
+    // A vehicle pads the last frame to seven bytes.
+    bytes.resize(6 + (length - 6).div_ceil(7) * 7, 0);
+    iso_tp_frames(length, &bytes)
 }
 
 /// An ELM327-compatible adapter plugged into the simulated emulator's OBD port. It answers from
@@ -397,9 +426,9 @@ impl SimulatedElm327 {
             return parts.join(" ");
         }
         match command {
-            "03" => list_codes("43", &vehicle.stored_dtcs),
-            "07" => list_codes("47", &vehicle.pending_dtcs),
-            "0A" => list_codes("4A", &vehicle.permanent_dtcs),
+            "03" => list_codes(0x43, &vehicle.stored_dtcs),
+            "07" => list_codes(0x47, &vehicle.pending_dtcs),
+            "0A" => list_codes(0x4a, &vehicle.permanent_dtcs),
             // Mode 04 clears stored and pending codes; permanent ones stay until the fault is gone.
             "04" => {
                 vehicle.stored_dtcs.clear();
@@ -413,18 +442,7 @@ impl SimulatedElm327 {
                     let mut units = [0; 2];
                     u32::from(c.encode_utf16(&mut units)[0])
                 }));
-                let join = |bytes: &[u32]| {
-                    let parts: Vec<String> = bytes.iter().copied().map(hex).collect();
-                    parts.join(" ")
-                };
-                let mut frames = vec![
-                    format!("{:03X}", bytes.len()),
-                    format!("0: {}", join(&bytes[..bytes.len().min(6)])),
-                ];
-                for (n, chunk) in bytes[6.min(bytes.len())..].chunks(7).enumerate() {
-                    frames.push(format!("{}: {}", n + 1, join(chunk)));
-                }
-                frames.join("\r")
+                iso_tp_frames(bytes.len(), &bytes)
             }
             _ => "NO DATA".to_owned(),
         }
@@ -892,6 +910,11 @@ mod tests {
         assert_eq!(
             SimulatedElm327::handle(&mut firmware, "0A"),
             "4A 01 C1 00\r\r>"
+        );
+        firmware.handle("ATSET DTC=P0105,P0300,P0420,P0171");
+        assert_eq!(
+            SimulatedElm327::handle(&mut firmware, "03"),
+            "00A\r0: 43 04 01 05 03 00\r1: 04 20 01 71 00 00 00\r\r>"
         );
         assert_eq!(SimulatedElm327::handle(&mut firmware, "04"), "44\r\r>");
         assert!(firmware.pending_dtcs.is_empty());
