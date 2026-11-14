@@ -251,6 +251,7 @@ mod tests {
                             text: image.to_owned(),
                         },
                         wire_key: Some("000102030405060708090a0b0c0d0e0f".to_owned()),
+                        confirm_too_old: None,
                     })
                     .await
             }

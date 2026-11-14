@@ -1177,7 +1177,12 @@ async fn firmware(fixture: &mut Fixture, mut state: Value) {
 
     let progress = c.request("firmware.subscribeUpdate", Value::Null);
     assert_eq!(c.chunk(progress).await, vec![json!({ "_tag": "idle" })]);
-    let update = json!({ "target": simulated, "image": file, "wireKey": TEST_KEY });
+    let update = json!({
+        "target": simulated,
+        "image": file,
+        "wireKey": TEST_KEY,
+        "confirmTooOld": true
+    });
     let flashing = c.request("firmware.update", update.clone());
     let running = c
         .chunk_where(progress, |state| state["_tag"] == "running")

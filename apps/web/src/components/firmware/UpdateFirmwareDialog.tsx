@@ -12,7 +12,6 @@ import { CircleAlertIcon, CircleCheckIcon, SquareArrowOutUpRightIcon } from "luc
 import { useRef, useState } from "react";
 import type * as React from "react";
 import { useEmulatorTarget } from "~/components/emulator/ConnectionControls";
-import { useFirmware } from "~/components/emulator/Firmware";
 import { PropertyRow } from "~/components/shell/PropertyRow";
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogFooter } from "~/components/ui/dialog";
@@ -31,6 +30,7 @@ import {
   updateFirmwareAtom,
 } from "~/rpc/atoms";
 import { useCall, useFirmwareLibrary, useFirmwareUpdateState, useWireKeyStatus } from "~/rpc/hooks";
+import { targetAge } from "./targetAge";
 import { importVendorFolder } from "./vendorFolder";
 
 const STAGES: Record<FirmwareUpdateStage, string> = {
@@ -195,7 +195,6 @@ function UpdateFlow({
   onClose: () => void;
 }) {
   const emulator = useEmulatorTarget();
-  const firmware = useFirmware();
   const updateState = useFirmwareUpdateState();
   const wireKey = useWireKeyStatus();
   const library = useFirmwareLibrary();
@@ -212,7 +211,7 @@ function UpdateFlow({
     error: false,
   });
   const [run, setRun] = useState<Run>({ baseline: null, outcome: null });
-  const serial = emulator.connectTarget._tag === "serial";
+  const age = targetAge(emulator.connection, emulator.connectTarget);
 
   // The newest library image is the default until something else is picked.
   const chosen: Choice | null =
@@ -308,7 +307,12 @@ function UpdateFlow({
     setRun({ baseline: updateState, outcome: null });
     setStep("update");
     onBusyChange(true);
-    const result = await update({ target, image: source });
+    const result = await update({
+      target,
+      image: source,
+      // Starting from the confirm step, under its warning, is the confirmation.
+      ...(age.warning === "too-old" ? { confirmTooOld: true } : {}),
+    });
     onBusyChange(false);
     setRun((current) => ({
       ...current,
@@ -455,11 +459,11 @@ function UpdateFlow({
             bootloader isn't touched, so a failed update can be run again.
           </p>
           <p className="text-muted-foreground">Keep the device powered until it finishes.</p>
-          {serial && (firmware.update === "too-old" || firmware.update === "unknown-age") ? (
+          {age.warning !== null ? (
             <p className="text-warning-foreground">
               Freematics advises against updating units made before 2018.
-              {firmware.made !== null
-                ? ` This one was made in ${firmware.made}.`
+              {age.made !== null
+                ? ` This one was made in ${age.made}.`
                 : " This unit's age can't be read."}
             </p>
           ) : null}

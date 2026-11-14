@@ -9,6 +9,10 @@
   },
   {
     "_tag": "FirmwareUpdateError",
+    "reason": "tooOld"
+  },
+  {
+    "_tag": "FirmwareUpdateError",
     "reason": "wrongKey"
   },
   {

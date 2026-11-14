@@ -6,12 +6,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use fme_core::contracts::emulator::{ConnectTarget, TrafficChannel, TrafficDirection};
+use fme_core::contracts::emulator::{ConnectTarget, Connection, TrafficChannel, TrafficDirection};
 use fme_core::contracts::firmware::{
     FirmwareImageError, FirmwareImageSource, FirmwareImageSummary, FirmwareUpdateError,
     FirmwareUpdateInput, FirmwareUpdateReason, FirmwareUpdateStage, FirmwareUpdateState,
 };
 use fme_core::contracts::rpc::UpdateFirmwareError;
+use fme_core::shared::firmware::{
+    FirmwareUpdateStatus, firmware_update_status, parse_firmware_info,
+};
 use futures_util::FutureExt;
 use tokio::sync::{Mutex, watch};
 
@@ -448,6 +451,23 @@ struct Inner {
 }
 
 impl Inner {
+    /// Whether the session is connected to `target` and the unit reported an age Freematics
+    /// advises against updating. Only a connected unit has reported anything.
+    fn target_is_too_old(&self, target: &ConnectTarget) -> bool {
+        let state = self.session.state();
+        let state = state.borrow();
+        let Connection::Connected {
+            target: connected,
+            device: Some(device),
+            ..
+        } = &state.connection
+        else {
+            return false;
+        };
+        let info = parse_firmware_info(Some(&device.banner), device.details.as_deref());
+        connected == target && firmware_update_status(&info) == FirmwareUpdateStatus::TooOld
+    }
+
     async fn open_link(
         &self,
         target: &ConnectTarget,
@@ -675,7 +695,8 @@ impl FirmwareUpdater {
         Ok(summarize_image(&read_firmware_image(image)?))
     }
 
-    /// Takes the device from the session and flashes the image through the bootloader. Once
+    /// Takes the device from the session and flashes the image through the bootloader. A unit
+    /// the session knows was made before 2018 is refused unless the input confirms it. Once
     /// started, the update runs to the end even if the caller goes away; `state` reports its
     /// progress, and the session refuses connects until it ends.
     #[tracing::instrument(
@@ -688,6 +709,7 @@ impl FirmwareUpdater {
             target,
             image,
             wire_key,
+            confirm_too_old,
         } = input;
         let text = match image {
             FirmwareImageSource::File { text } => text,
@@ -707,6 +729,10 @@ impl FirmwareUpdater {
             && wire_key_fingerprint(&wire_key) != VENDOR_WIRE_KEY_SHA256
         {
             return Err(update_error(FirmwareUpdateReason::WrongKey).into());
+        }
+        // Read before the session disconnects and forgets what the unit reported.
+        if confirm_too_old != Some(true) && self.inner.target_is_too_old(&target) {
+            return Err(update_error(FirmwareUpdateReason::TooOld).into());
         }
         let Ok(permit) = Arc::clone(&self.inner.lock).try_lock_owned() else {
             return Err(update_error(FirmwareUpdateReason::Busy).into());
@@ -778,6 +804,7 @@ mod tests {
             target: ConnectTarget::Simulated,
             image: FirmwareImageSource::File { text: image_text() },
             wire_key: Some(TEST_KEY.to_owned()),
+            confirm_too_old: None,
         }
     }
 
@@ -1128,6 +1155,50 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn refuses_a_connected_unit_made_before_2018_until_the_user_confirms() {
+        let fixture = fixture_on(SimulatedVersion::V1_2, None).await;
+        fixture.simulated.lock().firmware.date_code = "201712".to_owned();
+        fixture
+            .session
+            .connect(ConnectTarget::Simulated)
+            .await
+            .unwrap();
+
+        let error = fixture
+            .updater
+            .update(simulated_update())
+            .await
+            .unwrap_err();
+        assert_eq!(update_reason(error), FirmwareUpdateReason::TooOld);
+        assert_eq!(fixture.state(), FirmwareUpdateState::Idle);
+        assert!(fixture.received().is_empty());
+        assert!(matches!(
+            fixture.session.state().borrow().connection,
+            Connection::Connected { .. }
+        ));
+
+        fixture
+            .updater
+            .update(FirmwareUpdateInput {
+                confirm_too_old: Some(true),
+                ..simulated_update()
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            fixture.simulated.lock().firmware.version,
+            SimulatedVersion::V1_3
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn takes_a_unit_whose_age_the_session_never_read_without_a_confirmation() {
+        let fixture = fixture_on(SimulatedVersion::V1_2, None).await;
+        fixture.simulated.lock().firmware.date_code = "201712".to_owned();
+        fixture.updater.update(simulated_update()).await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn keeps_running_when_the_caller_goes_away() {
         let fixture = fixture().await;
         assert!(
@@ -1239,6 +1310,7 @@ mod tests {
                     name: name.to_owned(),
                 },
                 wire_key: None,
+                confirm_too_old: None,
             })
             .await
             .unwrap();
@@ -1260,6 +1332,7 @@ mod tests {
                     name: "Missing.hex".to_owned(),
                 },
                 wire_key: Some(TEST_KEY.to_owned()),
+                confirm_too_old: None,
             })
             .await
             .unwrap_err();
