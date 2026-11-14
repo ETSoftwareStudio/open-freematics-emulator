@@ -137,7 +137,11 @@ impl Server {
     /// Open sockets are dropped, not drained.
     pub async fn serve(self, shutdown: impl Future<Output = ()> + Send) -> Result<(), ServerError> {
         let result = tokio::select! {
-            result = axum::serve(self.listener, self.app).into_future() => result.map_err(ServerError::Serve),
+            result = axum::serve(
+                self.listener,
+                self.app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .into_future() => result.map_err(ServerError::Serve),
             () = shutdown => Ok(()),
         };
         let close = async {

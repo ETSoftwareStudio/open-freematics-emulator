@@ -68,8 +68,12 @@ errors implement `RpcError` in `fme-core` with `typed_errors!`. Wire rules:
   closes the socket (1001); a `null` message closes it (1011).
 
 `http.rs` serves `/ws`, `/api/health` and the built web app (Effect's static server rules and
-MIME types) behind the loopback same-origin guard. The `fme` binary takes `--host`, `--port`,
-`--data-dir`, `--web-root`, `--app-origin` and `--dev` (no web app; Vite serves it).
+MIME types) behind the loopback same-origin guard. The guard refuses a request unless the
+connection comes from a loopback address, the `Host` header names a loopback host, and the
+`Origin`, when there is one, is the server's own or the desktop window's. `Server::serve` gives
+the guard the peer address; a router served any other way refuses everything. The `fme` binary
+takes `--host` (a loopback address only: `127.0.0.1` or `::1`), `--port`, `--data-dir`,
+`--web-root`, `--app-origin` and `--dev` (no web app; Vite serves it).
 `server::Server` binds first (port 0 picks a free one) and serves until a shutdown future
 resolves, then closes the device links and the macOS Bluetooth ports `SerialPorts` holds open
 (macOS serves those only until their first close); the Tauri app (`apps/desktop-tauri`) runs it

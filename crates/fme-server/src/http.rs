@@ -1,12 +1,13 @@
 //! The HTTP side: the health route, the built web app, the RPC socket at `/ws`, and the guard
 //! that keeps other origins out of all of them.
 
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::ws::WebSocketUpgrade;
-use axum::extract::{Request, State};
+use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -28,15 +29,21 @@ fn url_host(url: &Url) -> Option<String> {
     })
 }
 
-/// Browsers let any web page open a WebSocket to this server, so a browser request must come from
-/// a page this server served: same origin, on a loopback host (which also defeats DNS rebinding).
-/// The desktop window is the one other page allowed: it names its own origin as `app_origin`.
-/// No `Origin` means a local non-browser client such as `hardware:check`.
+/// Only this machine may talk to the server, so the connection must come from a loopback address;
+/// the `Host` header alone proves nothing, since any client can send `Host: localhost`.
+/// Browsers let any web page open a WebSocket to this server, so a browser request must also come
+/// from a page this server served: same origin, on a loopback host (which also defeats DNS
+/// rebinding). The desktop window is the one other page allowed: it names its own origin as
+/// `app_origin`. No `Origin` means a local non-browser client such as `hardware:check`.
 pub fn is_local_request(
+    peer: IpAddr,
     host: Option<&str>,
     origin: Option<&str>,
     app_origin: Option<&str>,
 ) -> bool {
+    if !peer.to_canonical().is_loopback() {
+        return false;
+    }
     let Some(host) = host.and_then(|host| Url::parse(&format!("http://{host}")).ok()) else {
         return false;
     };
@@ -65,12 +72,18 @@ async fn local_only(
     next: Next,
 ) -> Response {
     let headers = request.headers();
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(address)| address.ip());
     let host = headers.get(header::HOST).map(|value| value.to_str());
     let origin = headers.get(header::ORIGIN).map(|value| value.to_str());
-    let allowed = match (host, origin) {
-        (Some(Ok(host)), None) => is_local_request(Some(host), None, app_origin.as_deref()),
-        (Some(Ok(host)), Some(Ok(origin))) => {
-            is_local_request(Some(host), Some(origin), app_origin.as_deref())
+    let allowed = match (peer, host, origin) {
+        (Some(peer), Some(Ok(host)), None) => {
+            is_local_request(peer, Some(host), None, app_origin.as_deref())
+        }
+        (Some(peer), Some(Ok(host)), Some(Ok(origin))) => {
+            is_local_request(peer, Some(host), Some(origin), app_origin.as_deref())
         }
         _ => false,
     };
@@ -78,9 +91,10 @@ async fn local_only(
         return next.run(request).await;
     }
     tracing::warn!(
+        ?peer,
         host = ?headers.get(header::HOST),
         origin = ?headers.get(header::ORIGIN),
-        "Rejected a request from another origin"
+        "Rejected a request from another machine or origin"
     );
     StatusCode::FORBIDDEN.into_response()
 }
@@ -205,7 +219,8 @@ async fn not_found() -> StatusCode {
 }
 
 /// Every route, behind the local-only guard. `web_root` is the built web app, `None` in dev,
-/// where Vite serves it and proxies `/ws` here instead.
+/// where Vite serves it and proxies `/ws` here instead. The guard refuses every request unless
+/// the router is served with `into_make_service_with_connect_info::<SocketAddr>()`.
 pub fn router(handlers: Handlers, web_root: Option<&Path>, app_origin: Option<String>) -> Router {
     let mut router = Router::new()
         .route("/ws", get(socket).fallback(not_found))
@@ -232,7 +247,11 @@ pub fn router(handlers: Handlers, web_root: Option<&Path>, app_origin: Option<St
 
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
+
     use super::*;
+
+    const LOOPBACK: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
     #[test]
     fn keeps_static_paths_inside_the_web_root() {
@@ -322,7 +341,46 @@ mod tests {
             ("a missing Host", None, None, false),
         ];
         for (case, host, origin, allowed) in cases {
-            assert_eq!(is_local_request(host, origin, None), allowed, "{case}");
+            assert_eq!(
+                is_local_request(LOOPBACK, host, origin, None),
+                allowed,
+                "{case}"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_only_a_loopback_peer_whatever_its_headers_say() {
+        let cases = [
+            ("IPv4 loopback", "127.0.0.1", true),
+            ("IPv6 loopback", "::1", true),
+            (
+                "IPv4 loopback on a dual-stack socket",
+                "::ffff:127.0.0.1",
+                true,
+            ),
+            ("a LAN machine", "192.168.1.20", false),
+            (
+                "a LAN machine on a dual-stack socket",
+                "::ffff:192.168.1.20",
+                false,
+            ),
+            ("a link-local IPv6 machine", "fe80::1", false),
+            ("a public address", "203.0.113.7", false),
+        ];
+        for (case, peer, allowed) in cases {
+            let peer: IpAddr = peer.parse().unwrap();
+            for (host, origin, app_origin) in [
+                ("localhost:3738", None, None),
+                ("127.0.0.1:3738", Some("http://127.0.0.1:3738"), None),
+                ("127.0.0.1:3738", Some("fme://app"), Some("fme://app")),
+            ] {
+                assert_eq!(
+                    is_local_request(peer, Some(host), origin, app_origin),
+                    allowed,
+                    "{case}: {host} {origin:?}"
+                );
+            }
         }
     }
 
@@ -374,7 +432,7 @@ mod tests {
         ];
         for (case, host, origin, app_origin, allowed) in cases {
             assert_eq!(
-                is_local_request(Some(host), Some(origin), app_origin),
+                is_local_request(LOOPBACK, Some(host), Some(origin), app_origin),
                 allowed,
                 "{case}"
             );
