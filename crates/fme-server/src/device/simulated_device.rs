@@ -116,6 +116,8 @@ fn parse_get(command: &str) -> Option<&str> {
 #[derive(Debug, Clone)]
 pub struct SimulatedFirmware {
     pub version: SimulatedVersion,
+    /// The YYYYMM the unit reports in its info line; a flash doesn't change it.
+    pub date_code: String,
     pub echo: bool,
     pub ignition: bool,
     pub vin_enabled: bool,
@@ -141,6 +143,7 @@ impl SimulatedFirmware {
         let defaults = version.defaults();
         let mut firmware = Self {
             version,
+            date_code: "201910".to_owned(),
             echo: false,
             ignition: true,
             vin_enabled: true,
@@ -175,8 +178,9 @@ impl SimulatedFirmware {
 
     pub fn details(&self) -> String {
         format!(
-            "00.00.02,{},201910,SIMULATED0000001",
-            self.version.defaults().hardware
+            "00.00.02,{},{},SIMULATED0000001",
+            self.version.defaults().hardware,
+            self.date_code
         )
     }
 

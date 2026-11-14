@@ -31,6 +31,11 @@ state and traffic are streams the server pushes; commands are RPC mutations run 
 state. Local state is only for drafts the user is editing (a slider being dragged, a VIN being
 typed), cleared once the command settles.
 
+A dialog whose work outlives the control that opens it is mounted once in `App.tsx`, and the
+controls only set its open atom. The firmware update dialog is the case: the update disconnects
+the emulator, which removes the infobar that offers it. Its progress and result derive from the
+streamed update state (`updateView.ts`), never from the call that started the update.
+
 ## React Compiler
 
 `react({ compiler: true })` memoizes components, so `useMemo` and `useCallback` aren't needed.

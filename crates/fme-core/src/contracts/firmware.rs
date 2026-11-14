@@ -127,6 +127,9 @@ pub struct FirmwareUpdateInput {
         deserialize_with = "wire_key"
     )]
     pub wire_key: Option<String>,
+    /// The user read the warning against updating a unit made before 2018 and went on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirm_too_old: Option<bool>,
 }
 
 string_enum! {
@@ -164,6 +167,8 @@ tagged_struct! {
 string_enum! {
     pub enum FirmwareUpdateReason {
         Busy => "busy",
+        ShuttingDown => "shuttingDown",
+        TooOld => "tooOld",
         WrongKey => "wrongKey",
         NoKey => "noKey",
         NoBootloader => "noBootloader",
@@ -179,6 +184,10 @@ impl FirmwareUpdateReason {
     fn message(self) -> &'static str {
         match self {
             Self::Busy => "A firmware update is already running.",
+            Self::ShuttingDown => "The app is closing, so no update can start.",
+            Self::TooOld => {
+                "Freematics advises against updating units made before 2018. Confirm to update this one."
+            }
             Self::WrongKey => "That isn't the MK2 bootloader's wire key.",
             Self::NoKey => "No wire key is available. Import one from the vendor tool first.",
             Self::NoBootloader => "The bootloader didn't answer.",

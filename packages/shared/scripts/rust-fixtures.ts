@@ -347,6 +347,11 @@ const types: Record<string, readonly [Schema.Top, ReadonlyArray<unknown>]> = {
         image: { _tag: "file", text: hexImage },
         wireKey: "00112233445566778899aabbccddeeff",
       },
+      {
+        target: serial,
+        image: { _tag: "library", name: libraryImage.name },
+        confirmTooOld: true,
+      },
     ],
   ],
   FirmwareImageError: [FirmwareImageError, firmwareImageErrors],

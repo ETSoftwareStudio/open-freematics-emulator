@@ -14,6 +14,7 @@ use crate::device::simulated_device::SimulatedDevice;
 use crate::device::tcp_sockets::TcpSockets;
 use crate::emulator::emulator_session::EmulatorSession;
 use crate::firmware::FirmwareServices;
+use crate::firmware::firmware_updater::UPDATE_TIMEOUT;
 use crate::firmware::vendor_package::{HttpClient, HttpError, ReqwestClient};
 use crate::http;
 use crate::obd::obd_reader::ObdReader;
@@ -93,6 +94,10 @@ impl Services {
 /// How long a quitting server waits for a device exchange in flight before it lets go anyway.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// The longest [`Server::serve`] takes to return once asked to stop: a firmware update that
+/// has just started, then the device links.
+pub const SHUTDOWN_TIMEOUT: Duration = UPDATE_TIMEOUT.saturating_add(CLOSE_TIMEOUT);
+
 /// The services behind a bound listener, so the address is known before serving.
 #[derive(Debug)]
 pub struct Server {
@@ -133,13 +138,17 @@ impl Server {
         self.local
     }
 
-    /// Serves until `shutdown` resolves, then closes the device links so the ports are free.
-    /// Open sockets are dropped, not drained.
+    /// Serves until `shutdown` resolves, lets a running firmware update finish, then closes the
+    /// device links so the ports are free. Open sockets are dropped, not drained, so the updater
+    /// itself refuses what they ask for from then on.
     pub async fn serve(self, shutdown: impl Future<Output = ()> + Send) -> Result<(), ServerError> {
         let result = tokio::select! {
             result = axum::serve(self.listener, self.app).into_future() => result.map_err(ServerError::Serve),
             () = shutdown => Ok(()),
         };
+        if !self.services.firmware.updater.shut_down().await {
+            tracing::warn!("A firmware update was still running at shutdown");
+        }
         let close = async {
             tokio::join!(
                 self.services.session.disconnect(),
@@ -164,6 +173,10 @@ pub async fn run(
 
 #[cfg(test)]
 mod tests {
+    use fme_core::contracts::emulator::ConnectTarget;
+    use fme_core::contracts::firmware::{
+        FirmwareImageSource, FirmwareUpdateInput, FirmwareUpdateState,
+    };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
     use tokio::sync::oneshot;
@@ -212,5 +225,48 @@ mod tests {
         stop.send(()).unwrap();
         serving.await.unwrap().unwrap();
         assert!(TcpStream::connect(address).await.is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn lets_a_running_firmware_update_finish_before_it_stops() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let server = Server::bind(ServerOptions {
+            host: "127.0.0.1".to_owned(),
+            port: 0,
+            web_root: None,
+            data_dir: data_dir.path().to_path_buf(),
+            app_origin: None,
+        })
+        .await
+        .unwrap();
+        let updater = server.services.firmware.updater.clone();
+        let image = ":020000040800F2\n:0438000001020304BA\n:00000001FF";
+        let update = tokio::spawn({
+            let updater = updater.clone();
+            async move {
+                updater
+                    .update(FirmwareUpdateInput {
+                        target: ConnectTarget::Simulated,
+                        image: FirmwareImageSource::File {
+                            text: image.to_owned(),
+                        },
+                        wire_key: Some("000102030405060708090a0b0c0d0e0f".to_owned()),
+                        confirm_too_old: None,
+                    })
+                    .await
+            }
+        });
+        updater
+            .state()
+            .wait_for(|state| matches!(state, FirmwareUpdateState::Running { .. }))
+            .await
+            .unwrap();
+
+        server.serve(std::future::ready(())).await.unwrap();
+        assert!(matches!(
+            *updater.state().borrow(),
+            FirmwareUpdateState::Succeeded { .. }
+        ));
+        update.await.unwrap().unwrap();
     }
 }

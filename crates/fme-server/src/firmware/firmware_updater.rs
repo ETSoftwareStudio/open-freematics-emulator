@@ -3,14 +3,18 @@
 
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use fme_core::contracts::emulator::{ConnectTarget, TrafficChannel, TrafficDirection};
+use fme_core::contracts::emulator::{ConnectTarget, Connection, TrafficChannel, TrafficDirection};
 use fme_core::contracts::firmware::{
     FirmwareImageError, FirmwareImageSource, FirmwareImageSummary, FirmwareUpdateError,
     FirmwareUpdateInput, FirmwareUpdateReason, FirmwareUpdateStage, FirmwareUpdateState,
 };
 use fme_core::contracts::rpc::UpdateFirmwareError;
+use fme_core::shared::firmware::{
+    FirmwareUpdateStatus, firmware_update_status, parse_firmware_info,
+};
 use futures_util::FutureExt;
 use tokio::sync::{Mutex, watch};
 
@@ -21,15 +25,15 @@ use super::bootloader_frame::{
 use super::firmware_image::{image_bytes, read_firmware_image, summarize_image};
 use super::firmware_library::FirmwareLibrary;
 use super::flash_plan::{
-    FlashPayloadError, erase_payload, finalizer_crc, finalizer_payload, plan_flash, run_payload,
-    write_payload,
+    APPLICATION_BASE, FLASH_BASE, FlashPayloadError, erase_payload, finalizer_crc,
+    finalizer_payload, plan_flash, run_payload, write_payload,
 };
 use super::intel_hex::FirmwareImage;
 use super::wire_key_store::WireKeyStore;
 use crate::device::device_link::{DeviceLink, latin1, latin1_bytes};
 use crate::device::serial_ports::SerialPorts;
 use crate::device::simulated_device::SimulatedDevice;
-use crate::emulator::emulator_session::EmulatorSession;
+use crate::emulator::emulator_session::{EmulatorSession, UpdateHold};
 use crate::traffic::traffic_log::TrafficLog;
 
 // The vendor updater's waits, except the erase: it allows 3 s, and waiting longer is harmless.
@@ -45,6 +49,24 @@ pub const RUN_SETTLE: Duration = Duration::from_millis(200);
 // this soon after a reply is dropped before the next command: about 38 byte-times at 38400 baud,
 // several ack frames (1.3 ms each) plus USB-serial and timer latency.
 pub const REPLY_SETTLE: Duration = Duration::from_millis(10);
+
+// The MK2's 128 KiB of flash in 1 KiB pages, less the bootloader's.
+const MAX_WRITE_BLOCKS: u32 = (128 * 1024 - (APPLICATION_BASE - FLASH_BASE)) / 1024;
+
+const fn replies(count: u32, timeout: Duration) -> Duration {
+    timeout.saturating_add(REPLY_SETTLE).saturating_mul(count)
+}
+
+/// The longest an update of a full MK2 runs, about ten minutes: every step of `steps` answering
+/// just inside its timeout. Opening and closing the port have no timeout and aren't counted.
+pub const UPDATE_TIMEOUT: Duration = RESTART_DELAY
+    .saturating_add(HANDSHAKE_TIMEOUT.saturating_mul(2 * HANDSHAKE_ATTEMPTS as u32))
+    .saturating_add(replies(4, REPLY_TIMEOUT))
+    .saturating_add(replies(1, ERASE_TIMEOUT))
+    .saturating_add(replies(MAX_WRITE_BLOCKS, WRITE_TIMEOUT))
+    .saturating_add(replies(3, FINISH_TIMEOUT))
+    .saturating_add(replies(1, REPLY_TIMEOUT))
+    .saturating_add(RUN_SETTLE);
 
 const STOPPED_UNEXPECTEDLY: &str = "The update stopped unexpectedly.";
 
@@ -425,9 +447,27 @@ struct Inner {
     library: FirmwareLibrary,
     state: watch::Sender<FirmwareUpdateState>,
     lock: Arc<Mutex<()>>,
+    shutting_down: AtomicBool,
 }
 
 impl Inner {
+    /// Whether the session is connected to `target` and the unit reported an age Freematics
+    /// advises against updating. Only a connected unit has reported anything.
+    fn target_is_too_old(&self, target: &ConnectTarget) -> bool {
+        let state = self.session.state();
+        let state = state.borrow();
+        let Connection::Connected {
+            target: connected,
+            device: Some(device),
+            ..
+        } = &state.connection
+        else {
+            return false;
+        };
+        let info = parse_firmware_info(Some(&device.banner), device.details.as_deref());
+        connected == target && firmware_update_status(&info) == FirmwareUpdateStatus::TooOld
+    }
+
     async fn open_link(
         &self,
         target: &ConnectTarget,
@@ -583,6 +623,7 @@ impl Inner {
         target: ConnectTarget,
         image: &FirmwareImage,
         wire_key: WireKey,
+        hold: UpdateHold,
     ) -> Result<(), FlashError> {
         let mut progress = Progress {
             state: &self.state,
@@ -600,6 +641,8 @@ impl Inner {
         if let Some(bootloader) = connection {
             bootloader.close().await;
         }
+        // Whoever sees the final state can connect at once.
+        drop(hold);
         progress.finish(&result);
         result.map(drop)
     }
@@ -637,6 +680,7 @@ impl FirmwareUpdater {
                 library,
                 state,
                 lock: Arc::new(Mutex::new(())),
+                shutting_down: AtomicBool::new(false),
             }),
         }
     }
@@ -651,8 +695,10 @@ impl FirmwareUpdater {
         Ok(summarize_image(&read_firmware_image(image)?))
     }
 
-    /// Disconnects the session and flashes the image through the bootloader. Once started, the
-    /// update runs to the end even if the caller goes away; `state` reports its progress.
+    /// Takes the device from the session and flashes the image through the bootloader. A unit
+    /// the session knows was made before 2018 is refused unless the input confirms it. Once
+    /// started, the update runs to the end even if the caller goes away; `state` reports its
+    /// progress, and the session refuses connects until it ends.
     #[tracing::instrument(
         name = "FirmwareUpdater.update",
         skip_all,
@@ -663,6 +709,7 @@ impl FirmwareUpdater {
             target,
             image,
             wire_key,
+            confirm_too_old,
         } = input;
         let text = match image {
             FirmwareImageSource::File { text } => text,
@@ -683,18 +730,26 @@ impl FirmwareUpdater {
         {
             return Err(update_error(FirmwareUpdateReason::WrongKey).into());
         }
+        // Read before the session disconnects and forgets what the unit reported.
+        if confirm_too_old != Some(true) && self.inner.target_is_too_old(&target) {
+            return Err(update_error(FirmwareUpdateReason::TooOld).into());
+        }
         let Ok(permit) = Arc::clone(&self.inner.lock).try_lock_owned() else {
             return Err(update_error(FirmwareUpdateReason::Busy).into());
         };
+        // Read under the lock `shut_down` takes next, so no update slips past it.
+        if self.inner.shutting_down.load(Ordering::Relaxed) {
+            return Err(update_error(FirmwareUpdateReason::ShuttingDown).into());
+        }
         let inner = Arc::clone(&self.inner);
         let job = tokio::spawn(async move {
             let _permit = permit;
-            inner.session.disconnect().await;
+            let hold = inner.session.hold_for_update().await;
             // The simulated unit has no real key; it takes the one this update uses.
             if target == ConnectTarget::Simulated {
                 inner.simulated.lock().bootloader.wire_key = wire_key;
             }
-            inner.flash(target, &image, wire_key).await
+            inner.flash(target, &image, wire_key, hold).await
         });
         match job.await {
             Ok(Ok(())) => Ok(()),
@@ -702,10 +757,25 @@ impl FirmwareUpdater {
             Ok(Err(FlashError::Defect)) | Err(_) => Err(UpdateError::Defect),
         }
     }
+
+    /// Refuses every update from now on and waits for the running one, [`UPDATE_TIMEOUT`] at
+    /// most, so the server never closes the port under a flash. False when it is still running.
+    #[tracing::instrument(name = "FirmwareUpdater.shutDown", skip_all)]
+    pub async fn shut_down(&self) -> bool {
+        self.inner.shutting_down.store(true, Ordering::Relaxed);
+        if self.inner.lock.try_lock().is_ok() {
+            return true;
+        }
+        tracing::info!("Waiting for the firmware update to finish");
+        tokio::time::timeout(UPDATE_TIMEOUT, self.inner.lock.lock())
+            .await
+            .is_ok()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use fme_core::contracts::emulator::{Connection, EmulatorConnectReason};
     use fme_core::contracts::firmware::{FirmwareImageReason, VendorImportResult};
 
     use super::*;
@@ -734,11 +804,13 @@ mod tests {
             target: ConnectTarget::Simulated,
             image: FirmwareImageSource::File { text: image_text() },
             wire_key: Some(TEST_KEY.to_owned()),
+            confirm_too_old: None,
         }
     }
 
     struct Fixture {
         updater: FirmwareUpdater,
+        session: EmulatorSession,
         simulated: SimulatedDevice,
         library: FirmwareLibrary,
         _root: tempfile::TempDir,
@@ -776,13 +848,14 @@ mod tests {
         let updater = FirmwareUpdater::new(
             SerialPorts::default(),
             simulated.clone(),
-            session,
+            session.clone(),
             traffic,
             keys,
             library.clone(),
         );
         Fixture {
             updater,
+            session,
             simulated,
             library,
             _root: root,
@@ -1003,6 +1076,129 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn keeps_the_session_off_the_device_until_the_update_ends() {
+        let fixture = fixture().await;
+        fixture
+            .session
+            .connect(ConnectTarget::Simulated)
+            .await
+            .unwrap();
+        let update = tokio::spawn({
+            let updater = fixture.updater.clone();
+            async move { updater.update(simulated_update()).await }
+        });
+        let mut state = fixture.updater.state();
+        state
+            .wait_for(|state| matches!(state, FirmwareUpdateState::Running { .. }))
+            .await
+            .unwrap();
+        assert_eq!(
+            fixture.session.state().borrow().connection,
+            Connection::Disconnected
+        );
+        let refused = fixture
+            .session
+            .connect(ConnectTarget::Simulated)
+            .await
+            .unwrap_err();
+        assert_eq!(refused.reason, EmulatorConnectReason::UpdateRunning);
+        assert_eq!(
+            fixture.session.state().borrow().connection,
+            Connection::Disconnected
+        );
+
+        state
+            .wait_for(|state| matches!(state, FirmwareUpdateState::Succeeded { .. }))
+            .await
+            .unwrap();
+        fixture
+            .session
+            .connect(ConnectTarget::Simulated)
+            .await
+            .unwrap();
+        update.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shutting_down_waits_for_the_running_update_and_refuses_the_next() {
+        let fixture = fixture().await;
+        let update = tokio::spawn({
+            let updater = fixture.updater.clone();
+            async move { updater.update(simulated_update()).await }
+        });
+        fixture
+            .updater
+            .state()
+            .wait_for(|state| matches!(state, FirmwareUpdateState::Running { .. }))
+            .await
+            .unwrap();
+
+        assert!(fixture.updater.shut_down().await);
+        assert!(matches!(
+            fixture.state(),
+            FirmwareUpdateState::Succeeded { .. }
+        ));
+        update.await.unwrap().unwrap();
+        let refused = fixture
+            .updater
+            .update(simulated_update())
+            .await
+            .unwrap_err();
+        assert_eq!(update_reason(refused), FirmwareUpdateReason::ShuttingDown);
+        assert!(fixture.updater.shut_down().await);
+    }
+
+    #[test]
+    fn allows_a_full_flash_about_ten_minutes() {
+        assert_eq!(MAX_WRITE_BLOCKS, 114);
+        assert_eq!(UPDATE_TIMEOUT, Duration::from_millis(605_430));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn refuses_a_connected_unit_made_before_2018_until_the_user_confirms() {
+        let fixture = fixture_on(SimulatedVersion::V1_2, None).await;
+        fixture.simulated.lock().firmware.date_code = "201712".to_owned();
+        fixture
+            .session
+            .connect(ConnectTarget::Simulated)
+            .await
+            .unwrap();
+
+        let error = fixture
+            .updater
+            .update(simulated_update())
+            .await
+            .unwrap_err();
+        assert_eq!(update_reason(error), FirmwareUpdateReason::TooOld);
+        assert_eq!(fixture.state(), FirmwareUpdateState::Idle);
+        assert!(fixture.received().is_empty());
+        assert!(matches!(
+            fixture.session.state().borrow().connection,
+            Connection::Connected { .. }
+        ));
+
+        fixture
+            .updater
+            .update(FirmwareUpdateInput {
+                confirm_too_old: Some(true),
+                ..simulated_update()
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            fixture.simulated.lock().firmware.version,
+            SimulatedVersion::V1_3
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn takes_a_unit_whose_age_the_session_never_read_without_a_confirmation() {
+        let fixture = fixture_on(SimulatedVersion::V1_2, None).await;
+        fixture.simulated.lock().firmware.date_code = "201712".to_owned();
+        fixture.updater.update(simulated_update()).await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn keeps_running_when_the_caller_goes_away() {
         let fixture = fixture().await;
         assert!(
@@ -1114,6 +1310,7 @@ mod tests {
                     name: name.to_owned(),
                 },
                 wire_key: None,
+                confirm_too_old: None,
             })
             .await
             .unwrap();
@@ -1135,6 +1332,7 @@ mod tests {
                     name: "Missing.hex".to_owned(),
                 },
                 wire_key: Some(TEST_KEY.to_owned()),
+                confirm_too_old: None,
             })
             .await
             .unwrap_err();

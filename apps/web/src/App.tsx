@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useState } from "react";
 import { AppStatusBar } from "./components/emulator/AppStatusBar";
 import { AppToolbar, type Screen } from "./components/emulator/AppToolbar";
 import { Infobars } from "./components/emulator/Infobars";
+import { UpdateFirmwareDialog } from "./components/firmware/UpdateFirmwareDialog";
 import { EmulatorScreen } from "./components/screens/EmulatorScreen";
 import { ScanToolScreen } from "./components/screens/ScanToolScreen";
 import { useMediaQuery } from "./lib/useMediaQuery";
@@ -85,6 +86,7 @@ export function App() {
         )}
       </main>
       <AppStatusBar showAdapter={!emulator} />
+      <UpdateFirmwareDialog />
     </div>
   );
 }

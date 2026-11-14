@@ -127,6 +127,15 @@ pub trait PortSystem: std::fmt::Debug + Send + Sync + 'static {
         path: &'a str,
     ) -> LinkFuture<'a, Result<Box<dyn DeviceLink>, DeviceLinkError>>;
 
+    /// [`PortSystem::open`] with the port to itself: until the link closes, every other open of
+    /// the port fails as busy, in this process or another.
+    fn open_exclusive<'a>(
+        &'a self,
+        path: &'a str,
+    ) -> LinkFuture<'a, Result<Box<dyn DeviceLink>, DeviceLinkError>> {
+        self.open(path)
+    }
+
     fn is_bluetooth<'a>(&'a self, path: &'a str) -> LinkFuture<'a, bool>;
 }
 
@@ -141,20 +150,27 @@ async fn available_ports() -> Result<Vec<ListedPort>, SerialPortListError> {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SystemPorts;
 
+async fn open_system(path: &str, exclusive: bool) -> Result<Box<dyn DeviceLink>, DeviceLinkError> {
+    let owned = path.to_owned();
+    let link = tokio::task::spawn_blocking(move || PortLink::open(&owned, exclusive))
+        .await
+        .map_err(|error| DeviceLinkError::new(LinkOperation::Open, io::Error::other(error)))??;
+    Ok(Box::new(link))
+}
+
 impl PortSystem for SystemPorts {
     fn open<'a>(
         &'a self,
         path: &'a str,
     ) -> LinkFuture<'a, Result<Box<dyn DeviceLink>, DeviceLinkError>> {
-        let owned = path.to_owned();
-        Box::pin(async move {
-            let link = tokio::task::spawn_blocking(move || PortLink::open(&owned))
-                .await
-                .map_err(|error| {
-                    DeviceLinkError::new(LinkOperation::Open, io::Error::other(error))
-                })??;
-            Ok(Box::new(link) as Box<dyn DeviceLink>)
-        })
+        Box::pin(open_system(path, false))
+    }
+
+    fn open_exclusive<'a>(
+        &'a self,
+        path: &'a str,
+    ) -> LinkFuture<'a, Result<Box<dyn DeviceLink>, DeviceLinkError>> {
+        Box::pin(open_system(path, true))
     }
 
     fn is_bluetooth<'a>(&'a self, path: &'a str) -> LinkFuture<'a, bool> {
@@ -196,8 +212,9 @@ impl SerialPorts {
         Ok(to_infos(available_ports().await?, Platform::current()))
     }
 
-    /// Opens the port until the link closes. macOS Bluetooth ports stay open for the server's
-    /// lifetime instead: closing only detaches, and the next open reuses the descriptor.
+    /// Opens the port until the link closes, and keeps every other opener out meanwhile. macOS
+    /// Bluetooth ports stay open for the server's lifetime instead: closing only detaches, and
+    /// the next open reuses the descriptor.
     #[tracing::instrument(name = "SerialPorts.open", skip_all, fields(path = path))]
     pub async fn open(&self, path: &str) -> Result<SerialLink, DeviceLinkError> {
         if self.platform == Platform::MacOs && self.system.is_bluetooth(path).await {
@@ -209,7 +226,7 @@ impl SerialPorts {
             });
         }
         Ok(SerialLink {
-            link: self.system.open(path).await?,
+            link: self.system.open_exclusive(path).await?,
             silent_means_stale: false,
         })
     }
@@ -273,9 +290,9 @@ impl std::fmt::Debug for PortLink {
 }
 
 impl PortLink {
-    fn open(path: &str) -> Result<Self, DeviceLinkError> {
+    fn open(path: &str, exclusive: bool) -> Result<Self, DeviceLinkError> {
         let open_error = |error: io::Error| DeviceLinkError::new(LinkOperation::Open, error);
-        let (reader, writer, still_there) = open_port(path).map_err(open_error)?;
+        let (reader, writer, still_there) = open_port(path, exclusive).map_err(open_error)?;
         let (sender, chunks) = Chunks::channel();
         let released = spawn_reader(reader, sender, still_there).map_err(open_error)?;
         Ok(Self {
@@ -338,9 +355,10 @@ type OpenedPort = (
 );
 
 /// POSIX ports are opened as plain files and read with blocking reads that time out in the
-/// driver (`VMIN 0`, `VTIME 1`).
+/// driver (`VMIN 0`, `VTIME 1`). An exclusive port refuses later opens with `EBUSY`
+/// (`TIOCEXCL`) until its last descriptor closes; an open by root still gets through.
 #[cfg(unix)]
-fn open_port(path: &str) -> io::Result<OpenedPort> {
+fn open_port(path: &str, exclusive: bool) -> io::Result<OpenedPort> {
     use std::os::unix::fs::OpenOptionsExt;
 
     use nix::fcntl::{FcntlArg, OFlag, fcntl};
@@ -354,6 +372,9 @@ fn open_port(path: &str) -> io::Result<OpenedPort> {
         .write(true)
         .custom_flags((OFlag::O_NOCTTY | OFlag::O_NONBLOCK).bits())
         .open(path)?;
+    if exclusive && let Err(error) = rustix::termios::ioctl_tiocexcl(&file) {
+        tracing::debug!(%error, "the port did not take exclusive mode");
+    }
     let mut termios = tcgetattr(&file)?;
     cfmakeraw(&mut termios);
     cfsetspeed(&mut termios, BaudRate::B38400)?;
@@ -381,8 +402,9 @@ fn open_port(path: &str) -> io::Result<OpenedPort> {
     ))
 }
 
+// Windows never shares an open COM port.
 #[cfg(not(unix))]
-fn open_port(path: &str) -> io::Result<OpenedPort> {
+fn open_port(path: &str, _exclusive: bool) -> io::Result<OpenedPort> {
     let port = serialport::new(path, BAUD_RATE)
         .timeout(READ_TIMEOUT)
         .open()?;
@@ -694,6 +716,29 @@ mod tests {
         );
         let paths: Vec<&str> = infos.iter().map(|info| info.path.as_str()).collect();
         assert_eq!(paths, ["/dev/cu.usbserial-0001", "/dev/cu.OBDII"]);
+    }
+
+    // macOS serial ports honour exclusive mode, but its ptys don't, so only Linux can show it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn keeps_other_openers_out_of_an_exclusive_port() {
+        use std::os::unix::fs::MetadataExt;
+
+        // Root may open a port that is in exclusive mode; a new file's owner tells who runs this.
+        if tempfile::tempfile().unwrap().metadata().unwrap().uid() == 0 {
+            return;
+        }
+        let pty = nix::pty::openpty(None, None).unwrap();
+        let path = nix::unistd::ttyname(&pty.slave).unwrap();
+        let path = path.to_str().unwrap();
+
+        assert!(open_port(path, false).is_ok());
+        let held = open_port(path, true).map(|(reader, writer, _)| (reader, writer));
+        assert!(held.is_ok());
+        for exclusive in [true, false] {
+            let busy = open_port(path, exclusive).map(drop).unwrap_err();
+            assert_eq!(busy.kind(), io::ErrorKind::ResourceBusy);
+        }
     }
 
     const PATH: &str = "/dev/cu.OBDII";

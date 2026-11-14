@@ -2,7 +2,7 @@
 //! device in step with it. Values are the last ones the device acknowledged; the firmware can't
 //! report most of them back.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -20,6 +20,7 @@ use fme_core::shared::dtcs::PIDS_RESET_BY_CLEAR;
 use fme_core::shared::pids::{clamp_pid_value, find_pid};
 use fme_core::shared::readiness::{MONITOR_STATUS_PID, encode_monitor_status};
 use tokio::sync::watch;
+use tracing::Instrument;
 
 use super::at_client::{AtClient, AtClientOptions};
 use crate::device::device_link::{DeviceLink, DeviceLinkError};
@@ -68,17 +69,34 @@ fn target_tag(target: &ConnectTarget) -> &'static str {
     }
 }
 
-// Like a scan tool's Mode 04: codes go, and so do the MIL-on and since-cleared counters.
-fn clear(state: &mut EmulatorState) {
-    state.dtcs = Dtcs::default();
-    for pid in &PIDS_RESET_BY_CLEAR {
-        state.pids.insert(pid.clone(), 0.0);
-    }
+/// One command of a setter and the state change that holds once the device acknowledges it.
+struct Step {
+    command: Option<String>,
+    acknowledged: Box<dyn FnOnce(&mut EmulatorState) + Send>,
 }
 
-fn set_pids(state: &mut EmulatorState, values: &[(PidId, f64)]) {
-    for (pid, value) in values {
-        state.pids.insert(pid.clone(), *value);
+impl Step {
+    fn new(
+        command: impl Into<String>,
+        acknowledged: impl FnOnce(&mut EmulatorState) + Send + 'static,
+    ) -> Self {
+        Self {
+            command: Some(command.into()),
+            acknowledged: Box::new(acknowledged),
+        }
+    }
+
+    /// A command the state has no field for.
+    fn command(command: impl Into<String>) -> Self {
+        Self::new(command, |_| {})
+    }
+
+    /// A state change that needs no command of its own; it holds once every step before it does.
+    fn state(change: impl FnOnce(&mut EmulatorState) + Send + 'static) -> Self {
+        Self {
+            command: None,
+            acknowledged: Box::new(change),
+        }
     }
 }
 
@@ -87,8 +105,9 @@ struct Pushed {
     unsent: Vec<UnsentEdit>,
 }
 
-/// Finds which DTC modes the firmware takes by setting a throwaway code in each. Runs right
-/// after ATZ, and the codes it leaves are cleared before the real state is pushed.
+/// Finds which DTC modes the firmware takes by setting a throwaway code in each, then clears
+/// every code before the real state is pushed: the probe's, and any the device kept from an
+/// earlier run, which ATZ is not known to clear.
 #[tracing::instrument(name = "EmulatorSession.probeDtcModes", skip_all)]
 async fn probe_dtc_modes(client: &AtClient) -> Result<Vec<DtcMode>, EmulatorCommandError> {
     let probe: Vec<DtcCode> = DtcCode::new(PROBE_DTC).into_iter().collect();
@@ -100,9 +119,7 @@ async fn probe_dtc_modes(client: &AtClient) -> Result<Vec<DtcMode>, EmulatorComm
             Err(error) => return Err(error),
         }
     }
-    if accepted.len() > 1 {
-        client.command(at::CLEAR_DTCS).await?;
-    }
+    client.command(at::CLEAR_DTCS).await?;
     Ok(accepted)
 }
 
@@ -180,6 +197,18 @@ async fn push_state(
     })
 }
 
+fn set_pid_step(pid: PidId, value: f64) -> Step {
+    Step::new(pid_command(&pid, value), move |state| {
+        state.pids.insert(pid, value);
+    })
+}
+
+fn set_dtcs_step(mode: DtcMode, codes: Vec<DtcCode>) -> Step {
+    Step::new(at::set_dtcs(mode, &codes), move |state| {
+        *state.dtcs.get_mut(mode) = codes;
+    })
+}
+
 #[derive(Debug)]
 struct ActiveConnection {
     id: u64,
@@ -194,6 +223,8 @@ struct Inner {
     state: watch::Sender<EmulatorState>,
     active: Mutex<Option<ActiveConnection>>,
     connection_ids: AtomicU64,
+    // Set while a firmware update owns the device.
+    updating: AtomicBool,
     // Connect, disconnect and setters run one at a time so a connect never races a setter.
     lock: tokio::sync::Mutex<()>,
 }
@@ -271,6 +302,18 @@ impl Drop for Abandoned<'_> {
     }
 }
 
+/// Keeps the session off the device for a firmware update. Dropping it allows connects again.
+#[derive(Debug)]
+pub struct UpdateHold {
+    inner: Arc<Inner>,
+}
+
+impl Drop for UpdateHold {
+    fn drop(&mut self) {
+        self.inner.updating.store(false, Ordering::Relaxed);
+    }
+}
+
 /// Cheap to clone; clones share one session.
 #[derive(Debug, Clone)]
 pub struct EmulatorSession {
@@ -288,6 +331,7 @@ impl EmulatorSession {
                 state,
                 active: Mutex::new(None),
                 connection_ids: AtomicU64::new(0),
+                updating: AtomicBool::new(false),
                 lock: tokio::sync::Mutex::new(()),
             }),
         }
@@ -309,6 +353,12 @@ impl EmulatorSession {
     )]
     pub async fn connect(&self, target: ConnectTarget) -> Result<(), EmulatorConnectError> {
         let _permit = self.inner.lock.lock().await;
+        if self.inner.updating.load(Ordering::Relaxed) {
+            return Err(EmulatorConnectError {
+                target,
+                reason: EmulatorConnectReason::UpdateRunning,
+            });
+        }
         let mut abandoned = Abandoned {
             inner: &self.inner,
             armed: true,
@@ -332,6 +382,18 @@ impl EmulatorSession {
             });
         }
         result
+    }
+
+    /// Disconnects, and refuses every connect until the hold is dropped, so nothing else opens
+    /// the port a firmware update writes to.
+    #[tracing::instrument(name = "EmulatorSession.holdForUpdate", skip_all)]
+    pub async fn hold_for_update(&self) -> UpdateHold {
+        self.inner.updating.store(true, Ordering::Relaxed);
+        let hold = UpdateHold {
+            inner: Arc::clone(&self.inner),
+        };
+        self.disconnect().await;
+        hold
     }
 
     async fn open_link(
@@ -440,62 +502,82 @@ impl EmulatorSession {
             .update(|state| state.connection = Connection::Disconnected);
     }
 
-    /// Sends commands when connected, then applies `next` to the state. While disconnected it
-    /// only changes the state, which is pushed to the device on the next connect.
+    /// Sends each step's command when connected and applies the state changes of the steps the
+    /// device acknowledged; a failed command ends the sequence there. While disconnected it only
+    /// changes the state, which is pushed to the device on the next connect.
+    ///
+    /// Runs in its own task, so a caller that goes away can't stop it between two commands or
+    /// before the state update.
     #[tracing::instrument(name = "EmulatorSession.apply", skip_all)]
     async fn apply(
         &self,
-        commands: impl FnOnce(&EmulatorState) -> Vec<String>,
-        next: impl FnOnce(&mut EmulatorState),
+        steps: impl FnOnce(&EmulatorState) -> Vec<Step> + Send + 'static,
     ) -> Result<(), EmulatorOperationError> {
-        if let Some(client) = self.inner.client() {
-            let current = self.inner.state.borrow().clone();
-            for command in commands(&current) {
-                client.command(&command).await?;
+        let inner = Arc::clone(&self.inner);
+        let job = async move {
+            let _permit = inner.lock.lock().await;
+            let client = inner.client();
+            let current = inner.state.borrow().clone();
+            let mut acknowledged = Vec::new();
+            let mut result = Ok(());
+            for step in steps(&current) {
+                if let (Some(client), Some(command)) = (&client, &step.command)
+                    && let Err(error) = client.command(command).await
+                {
+                    result = Err(error.into());
+                    break;
+                }
+                acknowledged.push(step.acknowledged);
             }
+            inner.update(|state| {
+                for change in acknowledged {
+                    change(state);
+                }
+            });
+            result
+        };
+        match tokio::spawn(job.in_current_span()).await {
+            Ok(result) => result,
+            Err(error) => std::panic::resume_unwind(error.into_panic()),
         }
-        self.inner.update(next);
-        Ok(())
     }
 
     #[tracing::instrument(name = "EmulatorSession.setIgnition", skip_all)]
     pub async fn set_ignition(&self, on: bool) -> Result<(), EmulatorOperationError> {
-        let _permit = self.inner.lock.lock().await;
-        self.apply(
-            |_| vec![at::ignition(on).to_owned()],
-            |state| state.ignition = on,
-        )
+        self.apply(move |_| {
+            vec![Step::new(at::ignition(on), move |state| {
+                state.ignition = on
+            })]
+        })
         .await
     }
 
     #[tracing::instrument(name = "EmulatorSession.setProtocol", skip_all)]
     pub async fn set_protocol(&self, protocol: ObdProtocol) -> Result<(), EmulatorOperationError> {
-        let _permit = self.inner.lock.lock().await;
-        self.apply(
-            |_| vec![at::set_protocol(protocol)],
-            |state| state.protocol = protocol,
-        )
+        self.apply(move |_| {
+            vec![Step::new(at::set_protocol(protocol), move |state| {
+                state.protocol = protocol;
+            })]
+        })
         .await
     }
 
     #[tracing::instrument(name = "EmulatorSession.setVinEnabled", skip_all)]
     pub async fn set_vin_enabled(&self, enabled: bool) -> Result<(), EmulatorOperationError> {
-        let _permit = self.inner.lock.lock().await;
-        self.apply(
-            |_| vec![at::vin_response(enabled).to_owned()],
-            |state| state.vin_enabled = enabled,
-        )
+        self.apply(move |_| {
+            vec![Step::new(at::vin_response(enabled), move |state| {
+                state.vin_enabled = enabled;
+            })]
+        })
         .await
     }
 
     #[tracing::instrument(name = "EmulatorSession.setVin", skip_all)]
     pub async fn set_vin(&self, vin: &Vin) -> Result<(), EmulatorOperationError> {
-        let _permit = self.inner.lock.lock().await;
-        self.apply(
-            |_| vec![at::set_vin(vin)],
-            |state| state.vin = Some(vin.to_string()),
-        )
-        .await
+        let command = at::set_vin(vin);
+        let vin = vin.to_string();
+        self.apply(move |_| vec![Step::new(command, move |state| state.vin = Some(vin))])
+            .await
     }
 
     #[tracing::instrument(name = "EmulatorSession.setCalibrationId", skip_all)]
@@ -503,54 +585,40 @@ impl EmulatorSession {
         &self,
         calibration_id: &CalibrationId,
     ) -> Result<(), EmulatorOperationError> {
-        let _permit = self.inner.lock.lock().await;
-        self.apply(
-            |_| vec![at::set_calibration_id(calibration_id)],
-            |state| state.calibration_id = Some(calibration_id.to_string()),
-        )
+        let command = at::set_calibration_id(calibration_id);
+        let calibration_id = calibration_id.to_string();
+        self.apply(move |_| {
+            vec![Step::new(command, move |state| {
+                state.calibration_id = Some(calibration_id);
+            })]
+        })
         .await
     }
 
     // Other PID edits keep `last_preset`: the UI shows them as edits to it.
     #[tracing::instrument(name = "EmulatorSession.setPid", skip_all, fields(pid = %pid))]
     pub async fn set_pid(&self, pid: &PidId, value: f64) -> Result<(), EmulatorOperationError> {
-        let _permit = self.inner.lock.lock().await;
-        let clamped = clamp_for(pid, value);
-        self.apply(
-            |_| vec![pid_command(pid, clamped)],
-            |state| {
-                state.pids.insert(pid.clone(), clamped);
-            },
-        )
-        .await
+        let step = set_pid_step(pid.clone(), clamp_for(pid, value));
+        self.apply(move |_| vec![step]).await
     }
 
     /// Sets the preset's PIDs in its order and records it as the last preset. If a command
     /// fails, the PIDs the device acknowledged stay set and the last preset is unchanged.
     #[tracing::instrument(name = "EmulatorSession.applyPreset", skip_all, fields(preset = %preset.id))]
     pub async fn apply_preset(&self, preset: &Preset) -> Result<(), EmulatorOperationError> {
-        let _permit = self.inner.lock.lock().await;
-        let values: Vec<(PidId, f64)> = preset
+        let mut steps: Vec<Step> = preset
             .pids
             .iter()
-            .map(|(pid, value)| (pid.clone(), clamp_for(pid, *value)))
+            .map(|(pid, value)| set_pid_step(pid.clone(), clamp_for(pid, *value)))
             .collect();
-        if let Some(client) = self.inner.client() {
-            for (sent, (pid, value)) in values.iter().enumerate() {
-                if let Err(error) = client.command(&pid_command(pid, *value)).await {
-                    self.inner.update(|state| set_pids(state, &values[..sent]));
-                    return Err(error.into());
-                }
-            }
-        }
-        self.inner.update(|state| {
-            set_pids(state, &values);
-            state.last_preset = Some(PresetRef {
-                id: preset.id.clone(),
-                name: preset.name.clone(),
-            });
-        });
-        Ok(())
+        let last_preset = PresetRef {
+            id: preset.id.clone(),
+            name: preset.name.clone(),
+        };
+        steps.push(Step::state(move |state| {
+            state.last_preset = Some(last_preset);
+        }));
+        self.apply(move |_| steps).await
     }
 
     #[tracing::instrument(name = "EmulatorSession.setDtcs", skip_all)]
@@ -559,45 +627,45 @@ impl EmulatorSession {
         mode: DtcMode,
         codes: Vec<DtcCode>,
     ) -> Result<(), EmulatorOperationError> {
-        let _permit = self.inner.lock.lock().await;
-        let commands = |current: &EmulatorState| {
+        self.apply(move |current| {
             let mut next = current.dtcs.clone();
             *next.get_mut(mode) = codes.clone();
+            let monitor_status = Step::command(monitor_status_command(&current.readiness, &next));
             if !codes.is_empty() {
-                return vec![
-                    at::set_dtcs(mode, &codes),
-                    monitor_status_command(&current.readiness, &next),
-                ];
+                return vec![set_dtcs_step(mode, codes), monitor_status];
             }
             // The firmware can only clear every mode at once, so restore the others after.
-            let mut commands = vec![at::CLEAR_DTCS.to_owned()];
+            let mut steps = vec![Step::new(at::CLEAR_DTCS, |state| {
+                state.dtcs = Dtcs::default();
+            })];
             for &other in DtcMode::ALL {
                 let kept = current.dtcs.get(other);
                 if other != mode && !kept.is_empty() {
-                    commands.push(at::set_dtcs(other, kept));
+                    steps.push(set_dtcs_step(other, kept.clone()));
                 }
             }
-            commands.push(monitor_status_command(&current.readiness, &next));
-            commands
-        };
-        let next = |state: &mut EmulatorState| *state.dtcs.get_mut(mode) = codes.clone();
-        self.apply(commands, next).await
+            steps.push(monitor_status);
+            steps
+        })
+        .await
     }
 
+    // Like a scan tool's Mode 04: codes go, and so do the MIL-on and since-cleared counters.
     #[tracing::instrument(name = "EmulatorSession.clearDtcs", skip_all)]
     pub async fn clear_dtcs(&self) -> Result<(), EmulatorOperationError> {
-        let _permit = self.inner.lock.lock().await;
-        self.apply(
-            |current| {
-                let mut next = current.clone();
-                clear(&mut next);
-                let mut commands = vec![at::CLEAR_DTCS.to_owned()];
-                commands.extend(PIDS_RESET_BY_CLEAR.iter().map(|pid| pid_command(pid, 0.0)));
-                commands.push(monitor_status_command(&next.readiness, &next.dtcs));
-                commands
-            },
-            clear,
-        )
+        self.apply(|current| {
+            let cleared = Dtcs::default();
+            let monitor_status =
+                Step::command(monitor_status_command(&current.readiness, &cleared));
+            let mut steps = vec![Step::new(at::CLEAR_DTCS, |state| state.dtcs = cleared)];
+            steps.extend(
+                PIDS_RESET_BY_CLEAR
+                    .iter()
+                    .map(|pid| set_pid_step(pid.clone(), 0.0)),
+            );
+            steps.push(monitor_status);
+            steps
+        })
         .await
     }
 
@@ -607,15 +675,14 @@ impl EmulatorSession {
         monitor: ReadinessMonitorId,
         monitor_state: ReadinessMonitor,
     ) -> Result<(), EmulatorOperationError> {
-        let _permit = self.inner.lock.lock().await;
-        self.apply(
-            |current| {
-                let mut readiness = current.readiness;
-                *readiness.get_mut(monitor) = monitor_state;
-                vec![monitor_status_command(&readiness, &current.dtcs)]
-            },
-            |state| *state.readiness.get_mut(monitor) = monitor_state,
-        )
+        self.apply(move |current| {
+            let mut readiness = current.readiness;
+            *readiness.get_mut(monitor) = monitor_state;
+            vec![Step::new(
+                monitor_status_command(&readiness, &current.dtcs),
+                move |state| *state.readiness.get_mut(monitor) = monitor_state,
+            )]
+        })
         .await
     }
 
@@ -707,6 +774,8 @@ mod tests {
     async fn pushes_the_stored_state_on_connect_and_reports_the_device() {
         let fixture = on(SimulatedVersion::V1_2);
         let session = &fixture.session;
+        // Codes from an earlier run: ATZ resets the PIDs, not the codes.
+        fixture.simulated.lock().firmware.stored_dtcs = vec!["P0300".to_owned()];
         session.set_pid(&pid("010C"), 3000.0).await.unwrap();
         session.set_ignition(false).await.unwrap();
         session.connect(ConnectTarget::Simulated).await.unwrap();
@@ -779,6 +848,80 @@ mod tests {
         };
         assert_eq!(error.reason, EmulatorCommandReason::Rejected);
         assert!(fixture.state().dtcs.pending.is_empty());
+    }
+
+    async fn connected_with_stored_and_pending_codes() -> Fixture {
+        let fixture = on(SimulatedVersion::V1_3);
+        let session = &fixture.session;
+        session.connect(ConnectTarget::Simulated).await.unwrap();
+        session
+            .set_dtcs(DtcMode::Stored, codes(&["P0420"]))
+            .await
+            .unwrap();
+        session
+            .set_dtcs(DtcMode::Pending, codes(&["P0300"]))
+            .await
+            .unwrap();
+        fixture
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn finishes_the_commands_and_the_state_update_when_the_caller_goes_away() {
+        let fixture = connected_with_stored_and_pending_codes().await;
+        let mut traffic = fixture.traffic.subscribe();
+        while traffic.try_next().is_some() {}
+        let mut state = fixture.session.state();
+        state.borrow_and_update();
+        // Clearing one mode clears them all and then restores the others; the caller leaves
+        // between the two.
+        tokio::select! {
+            biased;
+            sent = traffic.next() => assert_eq!(sent.unwrap().text, "ATCLR DTC"),
+            _ = fixture.session.set_dtcs(DtcMode::Pending, Vec::new()) => {
+                panic!("finished before the device answered")
+            }
+        }
+        state.changed().await.unwrap();
+        let kept = Dtcs {
+            stored: codes(&["P0420"]),
+            ..Dtcs::default()
+        };
+        assert_eq!(state.borrow().dtcs, kept);
+        let firmware = &fixture.simulated.lock().firmware;
+        assert_eq!(firmware.stored_dtcs, ["P0420"]);
+        assert!(firmware.pending_dtcs.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn keeps_what_the_device_acknowledged_when_a_later_command_fails() {
+        let fixture = connected_with_stored_and_pending_codes().await;
+        let session = &fixture.session;
+        session.set_pid(&pid("0121"), 120.0).await.unwrap();
+        session.set_pid(&pid("0131"), 500.0).await.unwrap();
+
+        fixture.simulated.lock().firmware.reject_command = Some("ATSET DTC=P0420".to_owned());
+        let error = session
+            .set_dtcs(DtcMode::Pending, Vec::new())
+            .await
+            .unwrap_err();
+        let EmulatorOperationError::Command(error) = error else {
+            panic!("unexpected {error:?}");
+        };
+        assert_eq!(error.reason, EmulatorCommandReason::Rejected);
+        assert_eq!(fixture.state().dtcs, Dtcs::default());
+        assert!(fixture.simulated.lock().firmware.stored_dtcs.is_empty());
+
+        session
+            .set_dtcs(DtcMode::Stored, codes(&["P0171"]))
+            .await
+            .unwrap();
+        fixture.simulated.lock().firmware.reject_command = Some("ATSET 0131=0x00,0x00".to_owned());
+        session.clear_dtcs().await.unwrap_err();
+        let state = fixture.state();
+        assert_eq!(state.dtcs, Dtcs::default());
+        assert_eq!(state.pids.get("0121"), Some(&0.0));
+        assert_eq!(state.pids.get("0131"), Some(&500.0));
+        assert_eq!(fixture.firmware("ATGET 0131"), "0131=01 F4 \r");
     }
 
     #[tokio::test(start_paused = true)]

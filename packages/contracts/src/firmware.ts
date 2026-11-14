@@ -64,6 +64,8 @@ export const FirmwareUpdateInput = Schema.Struct({
   image: FirmwareImageSource,
   /** The bootloader's 16-byte wire key as hex. When omitted, the stored key is used. */
   wireKey: Schema.optional(Schema.String.check(Schema.isPattern(/^[0-9a-fA-F]{32}$/))),
+  /** The user read the warning against updating a unit made before 2018 and went on. */
+  confirmTooOld: Schema.optional(Schema.Boolean),
 });
 export type FirmwareUpdateInput = typeof FirmwareUpdateInput.Type;
 
@@ -93,6 +95,8 @@ export class FirmwareUpdateError extends Schema.TaggedError<FirmwareUpdateError>
   {
     reason: Schema.Literals([
       "busy",
+      "shuttingDown",
+      "tooOld",
       "wrongKey",
       "noKey",
       "noBootloader",
@@ -108,6 +112,10 @@ export class FirmwareUpdateError extends Schema.TaggedError<FirmwareUpdateError>
     switch (this.reason) {
       case "busy":
         return "A firmware update is already running.";
+      case "shuttingDown":
+        return "The app is closing, so no update can start.";
+      case "tooOld":
+        return "Freematics advises against updating units made before 2018. Confirm to update this one.";
       case "wrongKey":
         return "That isn't the MK2 bootloader's wire key.";
       case "noKey":

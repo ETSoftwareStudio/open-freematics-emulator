@@ -1,18 +1,19 @@
 import { Progress } from "@base-ui/react/progress";
+import { useAtom, useAtomSet } from "@effect/atom-react";
 import {
   MAX_FIRMWARE_IMAGE_LENGTH,
   type FirmwareImageSource,
   type FirmwareImageSummary,
+  type FirmwareUpdateInput,
   type FirmwareUpdateStage,
-  type FirmwareUpdateState,
   type LibraryImage,
 } from "@fme/contracts";
 import { LATEST_OFFICIAL_FIRMWARE } from "@fme/shared/firmware";
+import * as Atom from "effect/reactivity/Atom";
 import { CircleAlertIcon, CircleCheckIcon, SquareArrowOutUpRightIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import type * as React from "react";
 import { useEmulatorTarget } from "~/components/emulator/ConnectionControls";
-import { useFirmware } from "~/components/emulator/Firmware";
 import { PropertyRow } from "~/components/shell/PropertyRow";
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogFooter } from "~/components/ui/dialog";
@@ -31,7 +32,12 @@ import {
   updateFirmwareAtom,
 } from "~/rpc/atoms";
 import { useCall, useFirmwareLibrary, useFirmwareUpdateState, useWireKeyStatus } from "~/rpc/hooks";
+import { targetAge } from "./targetAge";
+import { updateView, type UpdateRun, type UpdateView } from "./updateView";
 import { importVendorFolder } from "./vendorFolder";
+
+/** Whether the user asked for the dialog; the buttons that open it may unmount under it. */
+const updateDialogOpenAtom = Atom.make(false).pipe(Atom.keepAlive);
 
 const STAGES: Record<FirmwareUpdateStage, string> = {
   entering: "Restarting into the bootloader…",
@@ -52,11 +58,14 @@ type Image =
     }
   | { readonly name: string; readonly status: "invalid"; readonly message: string };
 
-interface Run {
-  /** The server's update state when this run started; anything else came from this run. */
-  readonly baseline: FirmwareUpdateState | null;
-  readonly outcome: null | { readonly ok: true } | { readonly ok: false; readonly message: string };
+type Step = "choose" | "confirm" | "update";
+
+interface Flow {
+  readonly step: Step;
+  readonly run: UpdateRun;
 }
+
+const START: Flow = { step: "choose", run: { baseline: null, outcome: null } };
 
 const hex = (address: number) => `0x${address.toString(16).toUpperCase().padStart(8, "0")}`;
 const bytes = (count: number) => `${count.toLocaleString("en-US")} bytes`;
@@ -186,33 +195,40 @@ type Choice =
   | { readonly kind: "library"; readonly name: string }
   | { readonly kind: "file"; readonly image: Image };
 
-/** The dialog's steps. Unmounts when the dialog closes, which drops the chosen image. */
+/**
+ * The dialog's steps. Unmounts when the dialog closes, which drops the chosen image; the step
+ * and the run live in the dialog, which stays mounted.
+ */
 function UpdateFlow({
+  step,
+  view,
+  onStepChange,
+  onStart,
   onBusyChange,
   onClose,
 }: {
+  step: Step;
+  /** The run's progress or result during the update step. */
+  view: UpdateView | null;
+  onStepChange: (step: Step) => void;
+  onStart: (input: FirmwareUpdateInput) => void;
   onBusyChange: (busy: boolean) => void;
   onClose: () => void;
 }) {
   const emulator = useEmulatorTarget();
-  const firmware = useFirmware();
-  const updateState = useFirmwareUpdateState();
   const wireKey = useWireKeyStatus();
   const library = useFirmwareLibrary();
   const inspect = useCall(inspectFirmwareAtom);
-  const update = useCall(updateFirmwareAtom);
   const importFiles = useCall(importVendorFilesAtom);
   const downloadFirmware = useCall(downloadVendorFirmwareAtom);
   const forgetKey = useCall(forgetWireKeyAtom);
-  const [step, setStep] = useState<"choose" | "confirm" | "update">("choose");
   const [choice, setChoice] = useState<Choice | null>(null);
   const [vendor, setVendor] = useState<{ busy: boolean; note: string | null; error: boolean }>({
     busy: false,
     note: null,
     error: false,
   });
-  const [run, setRun] = useState<Run>({ baseline: null, outcome: null });
-  const serial = emulator.connectTarget._tag === "serial";
+  const age = targetAge(emulator.connection, emulator.connectTarget);
 
   // The newest library image is the default until something else is picked.
   const chosen: Choice | null =
@@ -294,7 +310,7 @@ function UpdateFlow({
     </Button>
   );
 
-  const start = async () => {
+  const start = () => {
     const source: FirmwareImageSource | null =
       libraryImage !== null
         ? { _tag: "library", name: libraryImage.name }
@@ -305,15 +321,12 @@ function UpdateFlow({
     const target = emulator.connectTarget;
     // Keeps the picker on the flashed device once the update disconnects it.
     emulator.choose(emulator.selected);
-    setRun({ baseline: updateState, outcome: null });
-    setStep("update");
-    onBusyChange(true);
-    const result = await update({ target, image: source });
-    onBusyChange(false);
-    setRun((current) => ({
-      ...current,
-      outcome: result.ok ? { ok: true } : { ok: false, message: result.message },
-    }));
+    onStart({
+      target,
+      image: source,
+      // Starting from the confirm step, under its warning, is the confirmation.
+      ...(age.warning === "too-old" ? { confirmTooOld: true } : {}),
+    });
   };
 
   const vendorNote =
@@ -324,7 +337,7 @@ function UpdateFlow({
     ) : null;
 
   // The key comes first: until one is stored, the dialog only asks for the Freematics folder.
-  if (step === "choose" && wireKey?._tag !== "present") {
+  if (view === null && step === "choose" && wireKey?._tag !== "present") {
     return (
       <>
         <div className="mt-3 flex flex-col gap-2">
@@ -355,7 +368,7 @@ function UpdateFlow({
     );
   }
 
-  if (step === "choose") {
+  if (view === null && step === "choose") {
     return (
       <>
         <div className="mt-3 flex flex-col gap-2">
@@ -434,7 +447,7 @@ function UpdateFlow({
           <Button
             size="xs"
             disabled={summary === null || vendor.busy}
-            onClick={() => setStep("confirm")}
+            onClick={() => onStepChange("confirm")}
           >
             Continue…
           </Button>
@@ -443,7 +456,7 @@ function UpdateFlow({
     );
   }
 
-  if (step === "confirm") {
+  if (view === null) {
     return (
       <>
         <div className="mt-3 flex flex-col gap-1.5">
@@ -455,20 +468,20 @@ function UpdateFlow({
             bootloader isn't touched, so a failed update can be run again.
           </p>
           <p className="text-muted-foreground">Keep the device powered until it finishes.</p>
-          {serial && (firmware.update === "too-old" || firmware.update === "unknown-age") ? (
+          {age.warning !== null ? (
             <p className="text-warning-foreground">
               Freematics advises against updating units made before 2018.
-              {firmware.made !== null
-                ? ` This one was made in ${firmware.made}.`
+              {age.made !== null
+                ? ` This one was made in ${age.made}.`
                 : " This unit's age can't be read."}
             </p>
           ) : null}
         </div>
         <DialogFooter>
-          <Button variant="outline" size="xs" onClick={() => setStep("choose")}>
+          <Button variant="outline" size="xs" onClick={() => onStepChange("choose")}>
             Back
           </Button>
-          <Button variant="destructive" size="xs" onClick={() => void start()}>
+          <Button variant="destructive" size="xs" onClick={start}>
             Erase and Update
           </Button>
         </DialogFooter>
@@ -476,10 +489,8 @@ function UpdateFlow({
     );
   }
 
-  const live = updateState !== run.baseline ? updateState : null;
-
-  if (run.outcome === null) {
-    const progress = live?._tag === "running" ? live : null;
+  if (view._tag === "progress") {
+    const progress = view.state;
     return (
       <div className="mt-3 flex flex-col gap-2">
         <Progress.Root
@@ -504,15 +515,14 @@ function UpdateFlow({
     );
   }
 
-  if (run.outcome.ok) {
-    const result = live?._tag === "succeeded" ? live : null;
-    const written = result?.bytes ?? summary?.bytes ?? null;
+  if (view._tag === "succeeded") {
+    const written = view.bytes ?? summary?.bytes ?? null;
     return (
       <>
         <Outcome tone="success" title="Firmware updated.">
           <p className="text-muted-foreground">
             {written !== null ? `Wrote ${bytes(written)}` : "Done"}
-            {result?.version != null ? ` (application V${result.version}).` : "."}
+            {view.version !== null ? ` (application V${view.version}).` : "."}
           </p>
           <p className="text-muted-foreground">
             Connect again to use the emulator. A real unit may need a power cycle first.
@@ -527,12 +537,11 @@ function UpdateFlow({
     );
   }
 
-  const erased = live?._tag === "failed" && live.applicationErased;
   return (
     <>
       <Outcome tone="error" title="Update failed.">
-        <p className="text-muted-foreground">{run.outcome.message}</p>
-        {erased ? (
+        <p className="text-muted-foreground">{view.message}</p>
+        {view.applicationErased ? (
           <p className="text-foreground">
             The application was erased, so the emulator won't run until an update succeeds. The
             bootloader is intact: you can run the update again.
@@ -540,7 +549,7 @@ function UpdateFlow({
         ) : null}
       </Outcome>
       <DialogFooter>
-        <Button variant="outline" size="xs" onClick={() => setStep("choose")}>
+        <Button variant="outline" size="xs" onClick={() => onStepChange("choose")}>
           Back
         </Button>
         <Button size="xs" onClick={onClose}>
@@ -551,28 +560,70 @@ function UpdateFlow({
   );
 }
 
-/** Flashes an application image through the MK2 bootloader. */
+/** Opens the firmware update dialog, which `UpdateFirmwareDialog` mounts once for the app. */
 export function UpdateFirmwareButton() {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const updating = useFirmwareUpdateState()?._tag === "running";
-  const locked = busy || updating;
+  const setOpen = useAtomSet(updateDialogOpenAtom);
   return (
-    <>
-      <Button size="micro" variant="outline" onClick={() => setOpen(true)}>
-        Update Firmware…
-      </Button>
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          if (next || !locked) setOpen(next);
-        }}
-        title="Update Firmware"
-        description="Writes an application image through the MK2 bootloader."
-        className="w-96"
-      >
-        <UpdateFlow onBusyChange={setBusy} onClose={() => setOpen(false)} />
-      </Dialog>
-    </>
+    <Button size="micro" variant="outline" onClick={() => setOpen(true)}>
+      Update Firmware…
+    </Button>
+  );
+}
+
+/**
+ * Flashes an application image through the MK2 bootloader. Mounted once at the app's root: the
+ * update disconnects the emulator, which removes the infobar and can remove the inspector that
+ * opened it. Progress and result come from the streamed update state, so a running update shows
+ * here in every window, also one that was reloaded or didn't start it.
+ */
+export function UpdateFirmwareDialog() {
+  const [requested, setRequested] = useAtom(updateDialogOpenAtom);
+  const [flow, setFlow] = useState(START);
+  const [busy, setBusy] = useState(false);
+  const updateState = useFirmwareUpdateState();
+  const update = useCall(updateFirmwareAtom);
+
+  if (updateState?._tag === "running" && flow.step !== "update") {
+    setFlow({ step: "update", run: START.run });
+  }
+  const view = flow.step === "update" ? updateView(updateState, flow.run) : null;
+  const locked = busy || view?._tag === "progress";
+
+  const close = () => {
+    setRequested(false);
+    setFlow(START);
+  };
+  const start = async (input: FirmwareUpdateInput) => {
+    const run: UpdateRun = { baseline: updateState, outcome: null };
+    setFlow({ step: "update", run });
+    const result = await update(input);
+    const outcome = result.ok
+      ? { ok: true as const }
+      : { ok: false as const, message: result.message };
+    setFlow((current) =>
+      current.run === run ? { ...current, run: { ...run, outcome } } : current,
+    );
+  };
+
+  return (
+    <Dialog
+      open={requested || flow.step === "update"}
+      onOpenChange={(next) => {
+        if (next) setRequested(true);
+        else if (!locked) close();
+      }}
+      title="Update Firmware"
+      description="Writes an application image through the MK2 bootloader."
+      className="w-96"
+    >
+      <UpdateFlow
+        step={flow.step}
+        view={view}
+        onStepChange={(step) => setFlow({ step, run: START.run })}
+        onStart={(input) => void start(input)}
+        onBusyChange={setBusy}
+        onClose={close}
+      />
+    </Dialog>
   );
 }
