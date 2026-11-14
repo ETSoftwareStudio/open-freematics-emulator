@@ -29,7 +29,7 @@ use super::wire_key_store::WireKeyStore;
 use crate::device::device_link::{DeviceLink, latin1, latin1_bytes};
 use crate::device::serial_ports::SerialPorts;
 use crate::device::simulated_device::SimulatedDevice;
-use crate::emulator::emulator_session::EmulatorSession;
+use crate::emulator::emulator_session::{EmulatorSession, UpdateHold};
 use crate::traffic::traffic_log::TrafficLog;
 
 // The vendor updater's waits, except the erase: it allows 3 s, and waiting longer is harmless.
@@ -583,6 +583,7 @@ impl Inner {
         target: ConnectTarget,
         image: &FirmwareImage,
         wire_key: WireKey,
+        hold: UpdateHold,
     ) -> Result<(), FlashError> {
         let mut progress = Progress {
             state: &self.state,
@@ -600,6 +601,8 @@ impl Inner {
         if let Some(bootloader) = connection {
             bootloader.close().await;
         }
+        // Whoever sees the final state can connect at once.
+        drop(hold);
         progress.finish(&result);
         result.map(drop)
     }
@@ -651,8 +654,9 @@ impl FirmwareUpdater {
         Ok(summarize_image(&read_firmware_image(image)?))
     }
 
-    /// Disconnects the session and flashes the image through the bootloader. Once started, the
-    /// update runs to the end even if the caller goes away; `state` reports its progress.
+    /// Takes the device from the session and flashes the image through the bootloader. Once
+    /// started, the update runs to the end even if the caller goes away; `state` reports its
+    /// progress, and the session refuses connects until it ends.
     #[tracing::instrument(
         name = "FirmwareUpdater.update",
         skip_all,
@@ -689,12 +693,12 @@ impl FirmwareUpdater {
         let inner = Arc::clone(&self.inner);
         let job = tokio::spawn(async move {
             let _permit = permit;
-            inner.session.disconnect().await;
+            let hold = inner.session.hold_for_update().await;
             // The simulated unit has no real key; it takes the one this update uses.
             if target == ConnectTarget::Simulated {
                 inner.simulated.lock().bootloader.wire_key = wire_key;
             }
-            inner.flash(target, &image, wire_key).await
+            inner.flash(target, &image, wire_key, hold).await
         });
         match job.await {
             Ok(Ok(())) => Ok(()),
@@ -706,6 +710,7 @@ impl FirmwareUpdater {
 
 #[cfg(test)]
 mod tests {
+    use fme_core::contracts::emulator::{Connection, EmulatorConnectReason};
     use fme_core::contracts::firmware::{FirmwareImageReason, VendorImportResult};
 
     use super::*;
@@ -739,6 +744,7 @@ mod tests {
 
     struct Fixture {
         updater: FirmwareUpdater,
+        session: EmulatorSession,
         simulated: SimulatedDevice,
         library: FirmwareLibrary,
         _root: tempfile::TempDir,
@@ -776,13 +782,14 @@ mod tests {
         let updater = FirmwareUpdater::new(
             SerialPorts::default(),
             simulated.clone(),
-            session,
+            session.clone(),
             traffic,
             keys,
             library.clone(),
         );
         Fixture {
             updater,
+            session,
             simulated,
             library,
             _root: root,
@@ -1000,6 +1007,50 @@ mod tests {
             .unwrap_err();
         assert_eq!(update_reason(second), FirmwareUpdateReason::Busy);
         first.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn keeps_the_session_off_the_device_until_the_update_ends() {
+        let fixture = fixture().await;
+        fixture
+            .session
+            .connect(ConnectTarget::Simulated)
+            .await
+            .unwrap();
+        let update = tokio::spawn({
+            let updater = fixture.updater.clone();
+            async move { updater.update(simulated_update()).await }
+        });
+        let mut state = fixture.updater.state();
+        state
+            .wait_for(|state| matches!(state, FirmwareUpdateState::Running { .. }))
+            .await
+            .unwrap();
+        assert_eq!(
+            fixture.session.state().borrow().connection,
+            Connection::Disconnected
+        );
+        let refused = fixture
+            .session
+            .connect(ConnectTarget::Simulated)
+            .await
+            .unwrap_err();
+        assert_eq!(refused.reason, EmulatorConnectReason::UpdateRunning);
+        assert_eq!(
+            fixture.session.state().borrow().connection,
+            Connection::Disconnected
+        );
+
+        state
+            .wait_for(|state| matches!(state, FirmwareUpdateState::Succeeded { .. }))
+            .await
+            .unwrap();
+        fixture
+            .session
+            .connect(ConnectTarget::Simulated)
+            .await
+            .unwrap();
+        update.await.unwrap().unwrap();
     }
 
     #[tokio::test(start_paused = true)]

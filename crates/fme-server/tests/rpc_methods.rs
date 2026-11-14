@@ -1184,6 +1184,15 @@ async fn firmware(fixture: &mut Fixture, mut state: Value) {
         c.call("firmware.update", update).await,
         update_error("busy")
     );
+    assert_eq!(
+        c.call("emulator.connect", json!({ "target": simulated }))
+            .await,
+        fail(json!({
+            "_tag": "EmulatorConnectError",
+            "target": simulated,
+            "reason": "update-running"
+        }))
+    );
     c.interrupt(flashing).await;
     let finished = c
         .chunk_where(progress, |state| {
