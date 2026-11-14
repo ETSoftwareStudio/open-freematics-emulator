@@ -83,8 +83,9 @@ in-process that way.
 
 ## Checking
 
-`vp run rs:check` runs `cargo fmt --check`, clippy with warnings denied, and the tests.
-`vp run check` includes it. `vp run dev` builds `fme` and runs it with `--dev` next to Vite.
+`vp run rs:check` runs `cargo fmt --check`, clippy with warnings denied, and the tests, the last
+two with `--locked`, so a stale `Cargo.lock` fails the check. `rust-toolchain.toml` pins the
+compiler for rustup, which CI and releases use. `vp run check` includes it. `vp run dev` builds `fme` and runs it with `--dev` next to Vite.
 
 The wire itself is pinned by `crates/fme-server/tests`. `rpc_methods.rs` drives every RPC through
 one `effect_rpc::Connection` on the simulated device and paused time, as the web client's

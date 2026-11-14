@@ -90,6 +90,8 @@ jobs:
       - name: Install the serial port library the Rust server links
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - run: pnpm install --frozen-lockfile
+      # Installs the compiler rust-toolchain.toml pins.
+      - run: rustup toolchain install
       - run: pnpm exec vp run check
 
   desktop:
@@ -150,6 +152,8 @@ jobs:
       - name: Install the serial port library the Rust server links
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      # Installs the compiler rust-toolchain.toml pins; the target then goes onto that one.
+      - run: rustup toolchain install
       - run: rustup target add ${{ matrix.target }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec vp run npm:stage --target ${{ matrix.target }}

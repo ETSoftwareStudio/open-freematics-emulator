@@ -1,0 +1,6 @@
+# The exact compiler CI and releases build with. Bump it by hand; `rust-version` in Cargo.toml is
+# the oldest one the crates accept. Workflows add their own target with `rustup target add`.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
