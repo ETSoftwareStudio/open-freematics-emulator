@@ -358,6 +358,8 @@ async fn closes_the_socket_with_effects_codes() {
 struct HttpResponse {
     status: u16,
     content_type: Option<String>,
+    content_security_policy: Option<String>,
+    content_type_options: Option<String>,
     body: String,
 }
 
@@ -390,11 +392,15 @@ async fn http(
         .parse()
         .unwrap();
     let mut content_type = None;
+    let mut content_security_policy = None;
+    let mut content_type_options = None;
     let mut chunked = false;
     for line in lines {
         let (name, value) = line.split_once(": ").unwrap();
         match name.to_ascii_lowercase().as_str() {
             "content-type" => content_type = Some(value.to_owned()),
+            "content-security-policy" => content_security_policy = Some(value.to_owned()),
+            "x-content-type-options" => content_type_options = Some(value.to_owned()),
             "transfer-encoding" => chunked = value == "chunked",
             _ => {}
         }
@@ -403,6 +409,8 @@ async fn http(
     HttpResponse {
         status,
         content_type,
+        content_security_policy,
+        content_type_options,
         body: body.to_owned(),
     }
 }
@@ -450,6 +458,16 @@ async fn serves_health_and_the_web_app_to_its_own_pages_only() {
             "{path} {headers:?}"
         );
         assert_eq!(response.body, body, "{path} {headers:?}");
+        assert_eq!(
+            response.content_security_policy.as_deref(),
+            Some("frame-ancestors 'none'"),
+            "{path} {headers:?}"
+        );
+        assert_eq!(
+            response.content_type_options.as_deref(),
+            Some("nosniff"),
+            "{path} {headers:?}"
+        );
     }
     assert_eq!(http(address, "POST", "/api/health", &[]).await.status, 404);
     let foreign_upgrade = http(

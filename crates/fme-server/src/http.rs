@@ -8,7 +8,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{ConnectInfo, Request, State};
-use axum::http::{Method, StatusCode, Uri, header};
+use axum::http::{HeaderValue, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -97,6 +97,21 @@ async fn local_only(
         "Rejected a request from another machine or origin"
     );
     StatusCode::FORBIDDEN.into_response()
+}
+
+/// No page may frame the web app (a framed page can be clickjacked into a flash), and no
+/// response is sniffed into another type.
+async fn harden(mut response: Response) -> Response {
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("frame-ancestors 'none'"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    response
 }
 
 async fn socket(State(handlers): State<Arc<Handlers>>, upgrade: WebSocketUpgrade) -> Response {
@@ -239,10 +254,12 @@ pub fn router(handlers: Handlers, web_root: Option<&Path>, app_origin: Option<St
         }
         None => {}
     }
-    router.layer(middleware::from_fn_with_state(
-        app_origin.map(Arc::from),
-        local_only,
-    ))
+    router
+        .layer(middleware::from_fn_with_state(
+            app_origin.map(Arc::from),
+            local_only,
+        ))
+        .layer(middleware::map_response(harden))
 }
 
 #[cfg(test)]
