@@ -1,5 +1,5 @@
 import type { PidId } from "@fme/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { ConsolePanel } from "~/components/emulator/ConsolePanel";
 import { AdapterGroup } from "~/components/scantool/AdapterGroup";
 import {
@@ -12,10 +12,11 @@ import { trafficMentionsPid } from "~/components/scantool/readback";
 import { Drawer } from "~/components/shell/Drawer";
 import { Inspector } from "~/components/shell/Inspector";
 import { cn } from "~/lib/utils";
-import { usePersistentState } from "~/lib/usePersistentState";
+import { readPersistent, usePersistentState } from "~/lib/usePersistentState";
 import { readerWatchAtom } from "~/rpc/atoms";
 import { useCommand, useReaderState } from "~/rpc/hooks";
 
+const WATCH_KEY = "fme:scan:watching";
 const DEFAULT_WATCH = [
   "010C",
   "010D",
@@ -66,16 +67,21 @@ export function ScanToolScreen({
 }) {
   const reader = useReaderState();
   const watch = useCommand(readerWatchAtom);
-  const [stored, setStored] = usePersistentState("fme:scan:watching", DEFAULT_WATCH);
+  const [stored, setStored] = usePersistentState(WATCH_KEY, DEFAULT_WATCH);
   const [selected, setSelected] = useState<PidId | null>(null);
-  const watching = parseWatch(stored);
   const readerReady = reader !== null;
-  const watchingShown = reader !== null && reader.watching.join() === watching.join();
+  // The server's list is the one every window shows; the saved one only seeds it.
+  const watching = reader?.watching ?? parseWatch(stored);
+  const selectedShown = selected !== null && watching.includes(selected) ? selected : null;
 
-  // oxlint-disable-next-line fme/no-unreasoned-state-sync -- tells the server which PIDs to poll; the Emulator screen may have changed them
+  const sendSaved = useEffectEvent(() => {
+    const saved = parseWatch(readPersistent(WATCH_KEY, DEFAULT_WATCH));
+    if (reader !== null && reader.watching.join() !== saved.join()) void watch({ pids: saved });
+  });
+  // oxlint-disable-next-line fme/no-unreasoned-state-sync -- a server that just started polls its own default list; sends the saved one once when its state arrives, never on later changes
   useEffect(() => {
-    if (readerReady && !watchingShown) void watch({ pids: watching });
-  }, [readerReady, watchingShown, watching, watch]);
+    if (readerReady) sendSaved();
+  }, [readerReady]);
 
   return (
     <div className="relative flex min-h-0 flex-1">
@@ -93,9 +99,9 @@ export function ScanToolScreen({
           watching={watching}
           onWatchingChange={(pids) => {
             setStored(pids.join(","));
-            if (selected !== null && !pids.includes(selected)) setSelected(null);
+            void watch({ pids });
           }}
-          selected={selected}
+          selected={selectedShown}
           onSelectedChange={setSelected}
         />
         {trafficOpen ? (
@@ -103,11 +109,13 @@ export function ScanToolScreen({
             <ConsolePanel
               title="Traffic"
               description={
-                selected === null
+                selectedShown === null
                   ? "Polls stay out of the log; Read Once logs every request"
-                  : `Lines for ${selected} are highlighted`
+                  : `Lines for ${selectedShown} are highlighted`
               }
-              highlight={(entry) => selected !== null && trafficMentionsPid(entry, selected)}
+              highlight={(entry) =>
+                selectedShown !== null && trafficMentionsPid(entry, selectedShown)
+              }
               onHide={() => onTrafficOpenChange(false)}
             />
           </Drawer>
