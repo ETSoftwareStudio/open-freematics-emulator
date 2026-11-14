@@ -34,6 +34,7 @@ import {
 import { PortLabel, portName } from "~/lib/ports";
 import { useCommand, useEmulatorState } from "~/rpc/hooks";
 import { ButtonRow, Facts } from "./parts";
+import { wifiTarget } from "./wifiTarget";
 
 type Link = "bluetooth" | "usb" | "wifi";
 
@@ -113,13 +114,13 @@ export function AdapterGroup({ reader }: { reader: ReaderState }) {
   );
   const selectedPort = ports.find((p) => p.path === device);
   const selected = selectedPort?.path ?? SIMULATED;
+  const wifi = wifiTarget(host, port);
   const target: ReaderTarget =
     link === "wifi"
-      ? { _tag: "tcp", host: host.trim(), port: Number(port) }
+      ? (wifi ?? { _tag: "tcp", host: host.trim(), port: Number(port) })
       : selected === SIMULATED
         ? { _tag: "simulated" }
         : { _tag: "serial", path: selected };
-  const wifiValid = host.trim().length > 0 && Number.isInteger(Number(port)) && Number(port) > 0;
 
   const open = async (next: ReaderTarget) => {
     // A scan tool reads the codes and VIN as soon as it links up.
@@ -270,7 +271,7 @@ export function AdapterGroup({ reader }: { reader: ReaderState }) {
         ) : (
           <Button
             size="xs"
-            disabled={link === "wifi" && !wifiValid}
+            disabled={link === "wifi" && wifi === null}
             onClick={() => void open(target)}
           >
             <PlugZapIcon />
