@@ -227,9 +227,11 @@ impl Actor {
                     return done;
                 }
             }
-            let lost = self.on_link_lost.is_none();
+            if self.on_link_lost.is_none() {
+                return Err(error(command, EmulatorCommandReason::Link));
+            }
             tokio::select! {
-                chunk = self.link.next_chunk(), if !lost => self.receive(chunk),
+                chunk = self.link.next_chunk() => self.receive(chunk),
                 () = tokio::time::sleep_until(deadline) => return collector.timed_out(),
             }
         }
@@ -411,6 +413,21 @@ mod tests {
         let _client = AtClient::spawn(link, options);
         drop(script.incoming);
         assert!(on_lost.await.unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fails_an_exchange_at_once_when_the_link_is_lost() {
+        let (link, mut script) = scripted(&[]);
+        let client = AtClient::spawn(link, quiet());
+        let started = Instant::now();
+        let pending = spawn_command(&client, "ATACC1");
+        assert_eq!(script.written.recv().await.unwrap(), "ATACC1\r");
+        drop(script.incoming);
+        let cut_off = pending.await.unwrap().unwrap_err();
+        assert_eq!(cut_off.reason, EmulatorCommandReason::Link);
+        let after = client.command("ATVIN1").await.unwrap_err();
+        assert_eq!(after.reason, EmulatorCommandReason::Link);
+        assert_eq!(started.elapsed(), Duration::ZERO);
     }
 
     #[tokio::test(start_paused = true)]
