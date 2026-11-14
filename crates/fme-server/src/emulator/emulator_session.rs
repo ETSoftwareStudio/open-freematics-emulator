@@ -20,6 +20,7 @@ use fme_core::shared::dtcs::PIDS_RESET_BY_CLEAR;
 use fme_core::shared::pids::{clamp_pid_value, find_pid};
 use fme_core::shared::readiness::{MONITOR_STATUS_PID, encode_monitor_status};
 use tokio::sync::watch;
+use tracing::Instrument;
 
 use super::at_client::{AtClient, AtClientOptions};
 use crate::device::device_link::{DeviceLink, DeviceLinkError};
@@ -451,31 +452,41 @@ impl EmulatorSession {
     /// Sends each step's command when connected and applies the state changes of the steps the
     /// device acknowledged; a failed command ends the sequence there. While disconnected it only
     /// changes the state, which is pushed to the device on the next connect.
+    ///
+    /// Runs in its own task, so a caller that goes away can't stop it between two commands or
+    /// before the state update.
     #[tracing::instrument(name = "EmulatorSession.apply", skip_all)]
     async fn apply(
         &self,
-        steps: impl FnOnce(&EmulatorState) -> Vec<Step>,
+        steps: impl FnOnce(&EmulatorState) -> Vec<Step> + Send + 'static,
     ) -> Result<(), EmulatorOperationError> {
-        let _permit = self.inner.lock.lock().await;
-        let client = self.inner.client();
-        let current = self.inner.state.borrow().clone();
-        let mut acknowledged = Vec::new();
-        let mut result = Ok(());
-        for step in steps(&current) {
-            if let (Some(client), Some(command)) = (&client, &step.command)
-                && let Err(error) = client.command(command).await
-            {
-                result = Err(error.into());
-                break;
+        let inner = Arc::clone(&self.inner);
+        let job = async move {
+            let _permit = inner.lock.lock().await;
+            let client = inner.client();
+            let current = inner.state.borrow().clone();
+            let mut acknowledged = Vec::new();
+            let mut result = Ok(());
+            for step in steps(&current) {
+                if let (Some(client), Some(command)) = (&client, &step.command)
+                    && let Err(error) = client.command(command).await
+                {
+                    result = Err(error.into());
+                    break;
+                }
+                acknowledged.push(step.acknowledged);
             }
-            acknowledged.push(step.acknowledged);
+            inner.update(|state| {
+                for change in acknowledged {
+                    change(state);
+                }
+            });
+            result
+        };
+        match tokio::spawn(job.in_current_span()).await {
+            Ok(result) => result,
+            Err(error) => std::panic::resume_unwind(error.into_panic()),
         }
-        self.inner.update(|state| {
-            for change in acknowledged {
-                change(state);
-            }
-        });
-        result
     }
 
     #[tracing::instrument(name = "EmulatorSession.setIgnition", skip_all)]
@@ -795,6 +806,33 @@ mod tests {
             .await
             .unwrap();
         fixture
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn finishes_the_commands_and_the_state_update_when_the_caller_goes_away() {
+        let fixture = connected_with_stored_and_pending_codes().await;
+        let mut traffic = fixture.traffic.subscribe();
+        while traffic.try_next().is_some() {}
+        let mut state = fixture.session.state();
+        state.borrow_and_update();
+        // Clearing one mode clears them all and then restores the others; the caller leaves
+        // between the two.
+        tokio::select! {
+            biased;
+            sent = traffic.next() => assert_eq!(sent.unwrap().text, "ATCLR DTC"),
+            _ = fixture.session.set_dtcs(DtcMode::Pending, Vec::new()) => {
+                panic!("finished before the device answered")
+            }
+        }
+        state.changed().await.unwrap();
+        let kept = Dtcs {
+            stored: codes(&["P0420"]),
+            ..Dtcs::default()
+        };
+        assert_eq!(state.borrow().dtcs, kept);
+        let firmware = &fixture.simulated.lock().firmware;
+        assert_eq!(firmware.stored_dtcs, ["P0420"]);
+        assert!(firmware.pending_dtcs.is_empty());
     }
 
     #[tokio::test(start_paused = true)]
