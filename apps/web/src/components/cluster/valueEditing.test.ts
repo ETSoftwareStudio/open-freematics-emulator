@@ -1,9 +1,18 @@
+import { findPid } from "@fme/shared/pids";
 import { describe, expect, it } from "vite-plus/test";
 import { START_ANGLE, SWEEP, valueToAngle } from "./gaugeGeometry.ts";
-import { exitTarget, ghostValue, parseTyped, stepValue } from "./valueEditing.ts";
+import { exitTarget, ghostValue, parseTyped, snapToPid, stepValue } from "./valueEditing.ts";
 
 const rpm = { min: 0, max: 8000 };
-const voltage = { min: 8, max: 16 };
+
+const pid = (id: string) => {
+  const definition = findPid(id);
+  if (definition === undefined) throw new Error(`PID ${id} is not in the catalog`);
+  return definition;
+};
+const rpmPid = pid("010C");
+const coolantPid = pid("0105");
+const voltagePid = pid("0142");
 
 describe("value editing", () => {
   it("parses what the gauge shows and rejects the rest", () => {
@@ -14,13 +23,23 @@ describe("value editing", () => {
     expect(parseTyped("12a")).toBeNull();
   });
 
-  it("steps by the gauge step, ten at a time, inside the range", () => {
-    expect(stepValue(2350, 1, rpm, 50)).toBe(2400);
-    expect(stepValue(2350, -10, rpm, 50)).toBe(1850);
-    expect(stepValue(2337, 1, rpm, 50)).toBe(2400);
-    expect(stepValue(7980, 1, rpm, 50)).toBe(8000);
-    expect(stepValue(20, -1, rpm, 50)).toBe(0);
-    expect(stepValue(14, 1, voltage, 0.1)).toBeCloseTo(14.1, 6);
+  it("steps by the gauge step, ten at a time, inside what the PID encodes", () => {
+    expect(stepValue(2350, 1, rpmPid, 50)).toBe(2400);
+    expect(stepValue(2350, -10, rpmPid, 50)).toBe(1850);
+    expect(stepValue(2337, 1, rpmPid, 50)).toBe(2400);
+    expect(stepValue(20, -1, rpmPid, 50)).toBe(0);
+    expect(stepValue(14, 1, voltagePid, 0.1)).toBe(14.1);
+    // The coolant dial shows 40 to 130; a value below it steps from where it is.
+    expect(stepValue(6, -1, coolantPid, 1)).toBe(5);
+    expect(stepValue(140, 1, coolantPid, 1)).toBe(141);
+    expect(stepValue(coolantPid.min, -1, coolantPid, 1)).toBe(coolantPid.min);
+    expect(stepValue(coolantPid.max, 10, coolantPid, 1)).toBe(coolantPid.max);
+  });
+
+  it("keeps a keyed value inside what the PID encodes", () => {
+    expect(snapToPid(coolantPid, 5, 1)).toBe(5);
+    expect(snapToPid(coolantPid, -300, 1)).toBe(coolantPid.min);
+    expect(snapToPid(rpmPid, 99_999, 50)).toBe(rpmPid.max);
   });
 
   it("shows the ghost only for a typed value that differs, pegged to the dial", () => {
