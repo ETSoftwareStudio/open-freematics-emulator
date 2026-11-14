@@ -1,60 +1,69 @@
 import { WS_METHODS, type TrafficEntry } from "@fme/contracts";
 import * as Effect from "effect/Effect";
-import * as Schedule from "effect/Schedule";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import { EmulatorClient } from "./client.ts";
+import { resubscribing } from "./resubscribing.ts";
 
 const TRAFFIC_LIMIT = 400;
-const resubscribe = Stream.retry(Schedule.spaced("1 second"));
 
-const subscribe = <A, E>(stream: (client: EmulatorClient["Service"]) => Stream.Stream<A, E>) =>
-  Stream.unwrap(
-    Effect.gen(function* () {
-      return stream(yield* EmulatorClient);
-    }),
-  ).pipe(resubscribe);
-
-export const emulatorStateAtom = EmulatorClient.runtime
-  .atom(subscribe((client) => client(WS_METHODS.subscribeState, undefined)))
-  .pipe(Atom.keepAlive, Atom.withLabel("emulator:state"));
-
-export const trafficAtom = EmulatorClient.runtime
-  .atom(
-    // The log restarts with each subscription: the server replays its recent history, and a
-    // restarted server numbers entries from 1 again.
-    subscribe((client) =>
-      client(WS_METHODS.subscribeTraffic, undefined).pipe(
-        Stream.scan(
-          (): ReadonlyArray<TrafficEntry> => [],
-          (log, entry) => [...log.slice(-(TRAFFIC_LIMIT - 1)), entry],
-        ),
-      ),
+/**
+ * A subscription that outlives the socket. When the socket drops, the atom goes back to its
+ * initial result until the next subscription delivers, so no stale value stays up.
+ */
+const subscribe = <A, E>(stream: (client: EmulatorClient["Service"]) => Stream.Stream<A, E>) => {
+  const source = EmulatorClient.runtime.atom(
+    Stream.unwrap(
+      Effect.gen(function* () {
+        return stream(yield* EmulatorClient);
+      }),
+    ).pipe(resubscribing),
+  );
+  return Atom.make((get) =>
+    AsyncResult.flatMap(get(source), (value) =>
+      Option.isSome(value) ? AsyncResult.success(value.value) : AsyncResult.initial(true),
     ),
-  )
-  .pipe(Atom.keepAlive, Atom.withLabel("emulator:traffic"));
+  );
+};
 
-export const readerStateAtom = EmulatorClient.runtime
-  .atom(subscribe((client) => client(WS_METHODS.readerSubscribeState, undefined)))
-  .pipe(Atom.keepAlive, Atom.withLabel("reader:state"));
+export const emulatorStateAtom = subscribe((client) =>
+  client(WS_METHODS.subscribeState, undefined),
+).pipe(Atom.keepAlive, Atom.withLabel("emulator:state"));
+
+// The log restarts with each subscription: the server replays its recent history, and a
+// restarted server numbers entries from 1 again.
+export const trafficAtom = subscribe((client) =>
+  client(WS_METHODS.subscribeTraffic, undefined).pipe(
+    Stream.scan(
+      (): ReadonlyArray<TrafficEntry> => [],
+      (log, entry) => [...log.slice(-(TRAFFIC_LIMIT - 1)), entry],
+    ),
+  ),
+).pipe(Atom.keepAlive, Atom.withLabel("emulator:traffic"));
+
+export const readerStateAtom = subscribe((client) =>
+  client(WS_METHODS.readerSubscribeState, undefined),
+).pipe(Atom.keepAlive, Atom.withLabel("reader:state"));
 
 /** Built-ins first, then user presets; every window sees the same list. */
-export const presetsAtom = EmulatorClient.runtime
-  .atom(subscribe((client) => client(WS_METHODS.subscribePresets, undefined)))
-  .pipe(Atom.keepAlive, Atom.withLabel("presets"));
+export const presetsAtom = subscribe((client) =>
+  client(WS_METHODS.subscribePresets, undefined),
+).pipe(Atom.keepAlive, Atom.withLabel("presets"));
 
-export const firmwareUpdateAtom = EmulatorClient.runtime
-  .atom(subscribe((client) => client(WS_METHODS.subscribeFirmwareUpdate, undefined)))
-  .pipe(Atom.keepAlive, Atom.withLabel("firmware:update"));
+export const firmwareUpdateAtom = subscribe((client) =>
+  client(WS_METHODS.subscribeFirmwareUpdate, undefined),
+).pipe(Atom.keepAlive, Atom.withLabel("firmware:update"));
 
-export const wireKeyStatusAtom = EmulatorClient.runtime
-  .atom(subscribe((client) => client(WS_METHODS.subscribeWireKey, undefined)))
-  .pipe(Atom.keepAlive, Atom.withLabel("firmware:wireKey"));
+export const wireKeyStatusAtom = subscribe((client) =>
+  client(WS_METHODS.subscribeWireKey, undefined),
+).pipe(Atom.keepAlive, Atom.withLabel("firmware:wireKey"));
 
 /** Firmware images imported from the user's Freematics folder, newest first. */
-export const firmwareLibraryAtom = EmulatorClient.runtime
-  .atom(subscribe((client) => client(WS_METHODS.subscribeFirmwareLibrary, undefined)))
-  .pipe(Atom.keepAlive, Atom.withLabel("firmware:library"));
+export const firmwareLibraryAtom = subscribe((client) =>
+  client(WS_METHODS.subscribeFirmwareLibrary, undefined),
+).pipe(Atom.keepAlive, Atom.withLabel("firmware:library"));
 
 export const portsAtom = EmulatorClient.query(WS_METHODS.listPorts, undefined, {
   reactivityKeys: ["ports"],
