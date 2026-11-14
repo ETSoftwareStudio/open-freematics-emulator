@@ -81,6 +81,7 @@ enum Message {
 pub struct ElmClient {
     requests: mpsc::UnboundedSender<Message>,
     received: Arc<AtomicBool>,
+    link_lost: Arc<AtomicBool>,
 }
 
 fn lines_of(text: &str) -> Vec<String> {
@@ -102,9 +103,11 @@ impl ElmClient {
     pub fn spawn(link: Box<dyn DeviceLink>, options: ElmClientOptions) -> Self {
         let (requests, inbox) = mpsc::unbounded_channel();
         let received = Arc::new(AtomicBool::new(false));
+        let link_lost = Arc::new(AtomicBool::new(false));
         let actor = Actor {
             link,
             received: Arc::clone(&received),
+            link_lost: Arc::clone(&link_lost),
             buffer: String::new(),
             replies: VecDeque::new(),
             log_replies: true,
@@ -112,7 +115,16 @@ impl ElmClient {
             on_link_lost: Some(options.on_link_lost),
         };
         tokio::spawn(actor.run(inbox));
-        Self { requests, received }
+        Self {
+            requests,
+            received,
+            link_lost,
+        }
+    }
+
+    /// Whether the link failed or closed underneath the client. Set before `on_link_lost` runs.
+    pub fn link_lost(&self) -> bool {
+        self.link_lost.load(Ordering::Relaxed)
     }
 
     /// Whether any byte at all has arrived since the client started.
@@ -156,6 +168,7 @@ impl ElmClient {
 struct Actor {
     link: Box<dyn DeviceLink>,
     received: Arc<AtomicBool>,
+    link_lost: Arc<AtomicBool>,
     buffer: String,
     replies: VecDeque<Vec<String>>,
     // Replies are logged as they arrive, so one that comes after its request timed out still shows.
@@ -214,6 +227,7 @@ impl Actor {
 
     fn lose(&mut self, cause: Option<DeviceLinkError>) {
         if let Some(on_link_lost) = self.on_link_lost.take() {
+            self.link_lost.store(true, Ordering::Relaxed);
             on_link_lost(cause);
         }
     }

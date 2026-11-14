@@ -2,6 +2,8 @@
 //! command/reply exchange to completion; callers queue requests and wait for the answer.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use fme_core::contracts::emulator::{
@@ -56,6 +58,7 @@ enum Message {
 #[derive(Debug, Clone)]
 pub struct AtClient {
     requests: mpsc::UnboundedSender<Message>,
+    link_lost: Arc<AtomicBool>,
 }
 
 fn error(command: &str, reason: EmulatorCommandReason) -> EmulatorCommandError {
@@ -78,15 +81,25 @@ impl AtClient {
     /// debug output) are discarded before each send.
     pub fn spawn(link: Box<dyn DeviceLink>, options: AtClientOptions) -> Self {
         let (requests, inbox) = mpsc::unbounded_channel();
+        let link_lost = Arc::new(AtomicBool::new(false));
         let actor = Actor {
             link,
             framer: LineFramer::new(),
             lines: VecDeque::new(),
             on_traffic: options.on_traffic,
             on_link_lost: Some(options.on_link_lost),
+            link_lost: Arc::clone(&link_lost),
         };
         tokio::spawn(actor.run(inbox));
-        Self { requests }
+        Self {
+            requests,
+            link_lost,
+        }
+    }
+
+    /// Whether the link failed or closed underneath the client. Set before `on_link_lost` runs.
+    pub fn link_lost(&self) -> bool {
+        self.link_lost.load(Ordering::Relaxed)
     }
 
     /// Sends a command that answers `OK` or `ERROR`.
@@ -145,6 +158,7 @@ struct Actor {
     lines: VecDeque<String>,
     on_traffic: OnTraffic,
     on_link_lost: Option<OnLinkLost>,
+    link_lost: Arc<AtomicBool>,
 }
 
 impl Actor {
@@ -183,6 +197,7 @@ impl Actor {
 
     fn lose(&mut self, cause: Option<DeviceLinkError>) {
         if let Some(on_link_lost) = self.on_link_lost.take() {
+            self.link_lost.store(true, Ordering::Relaxed);
             on_link_lost(cause);
         }
     }

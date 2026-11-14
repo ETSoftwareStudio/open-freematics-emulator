@@ -442,6 +442,7 @@ pub(crate) mod fake {
         bluetooth: bool,
         answer: Answer,
         fail_writes: bool,
+        fail_read_on: Option<&'static str>,
         events: Vec<&'static str>,
         incoming: Option<ChunkSender>,
     }
@@ -466,6 +467,7 @@ pub(crate) mod fake {
                 bluetooth,
                 answer: Box::new(answer),
                 fail_writes: false,
+                fail_read_on: None,
                 events: Vec::new(),
                 incoming: None,
             })))
@@ -489,6 +491,11 @@ pub(crate) mod fake {
 
         pub(crate) fn fail_writes(&self, fail: bool) {
             self.state().fail_writes = fail;
+        }
+
+        /// Makes the link fail its next read, without an answer, once this text is written.
+        pub(crate) fn fail_read_on(&self, written: &'static str) {
+            self.state().fail_read_on = Some(written);
         }
 
         /// Feeds the port opened last as if the adapter sent it.
@@ -538,8 +545,17 @@ pub(crate) mod fake {
                     io::Error::other("gone"),
                 ))
             } else {
-                if let Some(reply) = (state.answer)(&latin1(data)) {
-                    self.sender.send(Ok(reply)).unwrap();
+                let written = latin1(data);
+                let chunk = if state.fail_read_on == Some(written.as_str()) {
+                    Some(Err(DeviceLinkError::new(
+                        LinkOperation::Read,
+                        io::Error::other("gone"),
+                    )))
+                } else {
+                    (state.answer)(&written).map(Ok)
+                };
+                if let Some(chunk) = chunk {
+                    self.sender.send(chunk).unwrap();
                 }
                 Ok(())
             };
