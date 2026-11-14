@@ -2,6 +2,8 @@
 //! command/reply exchange to completion; callers queue requests and wait for the answer.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use fme_core::contracts::emulator::{
@@ -56,6 +58,7 @@ enum Message {
 #[derive(Debug, Clone)]
 pub struct AtClient {
     requests: mpsc::UnboundedSender<Message>,
+    link_lost: Arc<AtomicBool>,
 }
 
 fn error(command: &str, reason: EmulatorCommandReason) -> EmulatorCommandError {
@@ -78,15 +81,25 @@ impl AtClient {
     /// debug output) are discarded before each send.
     pub fn spawn(link: Box<dyn DeviceLink>, options: AtClientOptions) -> Self {
         let (requests, inbox) = mpsc::unbounded_channel();
+        let link_lost = Arc::new(AtomicBool::new(false));
         let actor = Actor {
             link,
             framer: LineFramer::new(),
             lines: VecDeque::new(),
             on_traffic: options.on_traffic,
             on_link_lost: Some(options.on_link_lost),
+            link_lost: Arc::clone(&link_lost),
         };
         tokio::spawn(actor.run(inbox));
-        Self { requests }
+        Self {
+            requests,
+            link_lost,
+        }
+    }
+
+    /// Whether the link failed or closed underneath the client. Set before `on_link_lost` runs.
+    pub fn link_lost(&self) -> bool {
+        self.link_lost.load(Ordering::Relaxed)
     }
 
     /// Sends a command that answers `OK` or `ERROR`.
@@ -145,6 +158,7 @@ struct Actor {
     lines: VecDeque<String>,
     on_traffic: OnTraffic,
     on_link_lost: Option<OnLinkLost>,
+    link_lost: Arc<AtomicBool>,
 }
 
 impl Actor {
@@ -183,6 +197,7 @@ impl Actor {
 
     fn lose(&mut self, cause: Option<DeviceLinkError>) {
         if let Some(on_link_lost) = self.on_link_lost.take() {
+            self.link_lost.store(true, Ordering::Relaxed);
             on_link_lost(cause);
         }
     }
@@ -227,9 +242,11 @@ impl Actor {
                     return done;
                 }
             }
-            let lost = self.on_link_lost.is_none();
+            if self.on_link_lost.is_none() {
+                return Err(error(command, EmulatorCommandReason::Link));
+            }
             tokio::select! {
-                chunk = self.link.next_chunk(), if !lost => self.receive(chunk),
+                chunk = self.link.next_chunk() => self.receive(chunk),
                 () = tokio::time::sleep_until(deadline) => return collector.timed_out(),
             }
         }
@@ -411,6 +428,21 @@ mod tests {
         let _client = AtClient::spawn(link, options);
         drop(script.incoming);
         assert!(on_lost.await.unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fails_an_exchange_at_once_when_the_link_is_lost() {
+        let (link, mut script) = scripted(&[]);
+        let client = AtClient::spawn(link, quiet());
+        let started = Instant::now();
+        let pending = spawn_command(&client, "ATACC1");
+        assert_eq!(script.written.recv().await.unwrap(), "ATACC1\r");
+        drop(script.incoming);
+        let cut_off = pending.await.unwrap().unwrap_err();
+        assert_eq!(cut_off.reason, EmulatorCommandReason::Link);
+        let after = client.command("ATVIN1").await.unwrap_err();
+        assert_eq!(after.reason, EmulatorCommandReason::Link);
+        assert_eq!(started.elapsed(), Duration::ZERO);
     }
 
     #[tokio::test(start_paused = true)]

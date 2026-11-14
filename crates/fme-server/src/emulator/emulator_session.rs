@@ -249,8 +249,21 @@ impl Inner {
         }
     }
 
+    /// Makes the connection the active one, unless its link is lost already. One lock covers the
+    /// check and the store, so `on_link_lost` finds every connection that loses its link later.
+    fn keep(&self, connection: ActiveConnection) -> Result<(), ActiveConnection> {
+        let mut active = self.active();
+        if connection.client.link_lost() {
+            return Err(connection);
+        }
+        *active = Some(connection);
+        Ok(())
+    }
+
     #[tracing::instrument(name = "EmulatorSession.onLinkLost", skip_all)]
     async fn on_link_lost(&self, id: u64) {
+        // Under the lock no connect runs, so the state changed below is this connection's.
+        let _permit = self.lock.lock().await;
         let current = {
             let mut active = self.active();
             match &*active {
@@ -423,11 +436,19 @@ impl EmulatorSession {
         let (reset_lines, pushed) = match self.set_up(&client).await {
             Ok(set_up) => set_up,
             Err(reason) => {
+                let reason = if client.link_lost() {
+                    EmulatorConnectReason::LinkLost
+                } else {
+                    reason
+                };
                 client.close().await;
                 return Err(fail(reason));
             }
         };
-        *self.inner.active() = Some(ActiveConnection { id, client });
+        if let Err(lost) = self.inner.keep(ActiveConnection { id, client }) {
+            lost.client.close().await;
+            return Err(fail(EmulatorConnectReason::LinkLost));
+        }
         let device = parse_device_info(&reset_lines);
         self.inner.update(|state| {
             let mut pids = std::mem::take(&mut state.pids);
@@ -679,7 +700,9 @@ mod tests {
     use fme_core::contracts::presets::PresetId;
 
     use super::*;
-    use crate::device::simulated_device::{SimulatedVersion, simulated_banner};
+    use crate::device::serial_ports::Platform;
+    use crate::device::serial_ports::fake::FakeSystem;
+    use crate::device::simulated_device::{SimulatedFirmware, SimulatedVersion, simulated_banner};
 
     struct Fixture {
         session: EmulatorSession,
@@ -1155,5 +1178,77 @@ mod tests {
         assert_eq!(state.pids.get("010C"), Some(&3100.0));
         assert_eq!(state.pids.get("010D"), Some(&50.0));
         assert_eq!(state.last_preset, None);
+    }
+
+    const PORT: &str = "/dev/cu.usbserial-1";
+
+    /// A session on a fake serial port that the simulated firmware answers.
+    fn on_a_fake_port() -> (EmulatorSession, FakeSystem) {
+        let firmware = Mutex::new(SimulatedFirmware::new(SimulatedVersion::V1_2));
+        let system = FakeSystem::new(false, move |written| {
+            let mut firmware = firmware.lock().unwrap();
+            Some(firmware.handle(written.trim_end_matches('\r')))
+        });
+        let session = EmulatorSession::new(
+            SerialPorts::with_system(Platform::MacOs, system.clone()),
+            SimulatedDevice::default(),
+            TrafficLog::new(),
+        );
+        (session, system)
+    }
+
+    fn port() -> ConnectTarget {
+        ConnectTarget::Serial {
+            path: PORT.to_owned(),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fails_the_connect_when_the_link_is_lost_at_any_step() {
+        for step in ["ATZ\r", "ATSET DTC7=P0000\r", "ATGET CALID\r"] {
+            let (session, system) = on_a_fake_port();
+            system.fail_read_on(step);
+            let started = tokio::time::Instant::now();
+            let error = session.connect(port()).await.unwrap_err();
+            assert_eq!(error.reason, EmulatorConnectReason::LinkLost, "{step}");
+            assert!(started.elapsed() < Duration::from_secs(1), "{step}");
+            let state = session.state().borrow().clone();
+            assert!(
+                matches!(state.connection, Connection::Failed { .. }),
+                "{step}: {:?}",
+                state.connection
+            );
+            assert_eq!(system.events(), ["open", "close"], "{step}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn leaves_a_newer_connection_alone_when_an_older_link_is_lost() {
+        let (session, system) = on_a_fake_port();
+        session.connect(port()).await.unwrap();
+        let held = system.hold_close();
+        system.fail_read();
+        held.entered.await.unwrap();
+        // The lost connection is still closing when the user connects to another device.
+        let old_one_closes = async {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            held.release.send(()).unwrap();
+        };
+        let (connected, ()) =
+            tokio::join!(session.connect(ConnectTarget::Simulated), old_one_closes);
+        connected.unwrap();
+        session.send_raw("ATGET VIN").await.unwrap();
+        let state = session.state().borrow().clone();
+        assert!(
+            matches!(
+                state.connection,
+                Connection::Connected {
+                    target: ConnectTarget::Simulated,
+                    ..
+                }
+            ),
+            "{:?}",
+            state.connection
+        );
     }
 }

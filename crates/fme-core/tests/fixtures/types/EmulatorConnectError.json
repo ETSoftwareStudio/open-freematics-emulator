@@ -29,6 +29,14 @@
       "_tag": "serial",
       "path": "/dev/cu.usbserial-0001"
     },
+    "reason": "link-lost"
+  },
+  {
+    "_tag": "EmulatorConnectError",
+    "target": {
+      "_tag": "serial",
+      "path": "/dev/cu.usbserial-0001"
+    },
     "reason": "update-running"
   }
 ]

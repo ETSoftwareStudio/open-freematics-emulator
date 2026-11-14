@@ -365,6 +365,7 @@ string_enum! {
         OpenFailed => "open-failed",
         NoHandshake => "no-handshake",
         SetupFailed => "setup-failed",
+        LinkLost => "link-lost",
         UpdateRunning => "update-running",
     }
 }
@@ -375,6 +376,7 @@ impl EmulatorConnectReason {
             Self::OpenFailed => "Could not open the serial port.",
             Self::NoHandshake => "The device did not answer like a Freematics emulator.",
             Self::SetupFailed => "The emulator rejected its initial configuration.",
+            Self::LinkLost => "The connection to the emulator dropped while connecting.",
             Self::UpdateRunning => "A firmware update is running. Connect when it finishes.",
         }
     }

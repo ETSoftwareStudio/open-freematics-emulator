@@ -33,6 +33,27 @@ describe("ELM327 replies", () => {
     expect(parseDtcReply(["43 00"], 0x03, true)).toEqual([]);
   });
 
+  it.each([
+    [
+      ["008", "0: 43 03 01 05 03 00", "1: 04 20 00 00 00 00 00"],
+      ["P0105", "P0300", "P0420"],
+    ],
+    [
+      ["00A", "0: 43 04 01 05 03 00", "1: 04 20 01 71 00 00 00"],
+      ["P0105", "P0300", "P0420", "P0171"],
+    ],
+    [
+      ["010", "0: 43 07 01 05 03 00", "1: 04 20 01 71 43 00 C1", "2: 00 81 23 AA AA AA AA"],
+      ["P0105", "P0300", "P0420", "P0171", "C0300", "U0100", "B0123"],
+    ],
+    [
+      ["43 01 01 05 AA AA AA", "43 01 03 00 AA AA AA"],
+      ["P0105", "P0300"],
+    ],
+  ])("reads DTCs from the multi-frame CAN reply %j", (lines, codes) => {
+    expect(parseDtcReply(lines, 0x03, true)).toEqual(codes);
+  });
+
   it("reassembles a multi-frame CAN VIN", () => {
     expect(
       parseVinReply([
