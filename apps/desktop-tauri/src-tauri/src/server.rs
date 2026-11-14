@@ -4,13 +4,13 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use fme_server::server::{Server, ServerError, ServerOptions};
+use fme_server::server::{SHUTDOWN_TIMEOUT, Server, ServerError, ServerOptions};
 use tauri::async_runtime::{self, JoinHandle};
 use tauri::{AppHandle, Runtime};
 use tokio::sync::oneshot;
 
-/// Longer than the server's own wait for a device exchange in flight.
-const STOP_TIMEOUT: Duration = Duration::from_secs(5);
+/// Longer than the server's own wait, which lets a running firmware update finish.
+const STOP_TIMEOUT: Duration = SHUTDOWN_TIMEOUT.saturating_add(Duration::from_secs(2));
 
 #[derive(Debug)]
 pub struct EmbeddedServer {
@@ -53,7 +53,8 @@ impl EmbeddedServer {
         })
     }
 
-    /// Stops serving and waits for the device links to close, so the serial port is free.
+    /// Stops serving and waits for a running firmware update to finish and the device links to
+    /// close, so the serial port is free.
     pub fn stop(&self) {
         let running = self
             .running

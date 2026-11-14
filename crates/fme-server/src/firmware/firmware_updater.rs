@@ -3,6 +3,7 @@
 
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use fme_core::contracts::emulator::{ConnectTarget, TrafficChannel, TrafficDirection};
@@ -21,8 +22,8 @@ use super::bootloader_frame::{
 use super::firmware_image::{image_bytes, read_firmware_image, summarize_image};
 use super::firmware_library::FirmwareLibrary;
 use super::flash_plan::{
-    FlashPayloadError, erase_payload, finalizer_crc, finalizer_payload, plan_flash, run_payload,
-    write_payload,
+    APPLICATION_BASE, FLASH_BASE, FlashPayloadError, erase_payload, finalizer_crc,
+    finalizer_payload, plan_flash, run_payload, write_payload,
 };
 use super::intel_hex::FirmwareImage;
 use super::wire_key_store::WireKeyStore;
@@ -45,6 +46,24 @@ pub const RUN_SETTLE: Duration = Duration::from_millis(200);
 // this soon after a reply is dropped before the next command: about 38 byte-times at 38400 baud,
 // several ack frames (1.3 ms each) plus USB-serial and timer latency.
 pub const REPLY_SETTLE: Duration = Duration::from_millis(10);
+
+// The MK2's 128 KiB of flash in 1 KiB pages, less the bootloader's.
+const MAX_WRITE_BLOCKS: u32 = (128 * 1024 - (APPLICATION_BASE - FLASH_BASE)) / 1024;
+
+const fn replies(count: u32, timeout: Duration) -> Duration {
+    timeout.saturating_add(REPLY_SETTLE).saturating_mul(count)
+}
+
+/// The longest an update of a full MK2 runs, about ten minutes: every step of `steps` answering
+/// just inside its timeout. Opening and closing the port have no timeout and aren't counted.
+pub const UPDATE_TIMEOUT: Duration = RESTART_DELAY
+    .saturating_add(HANDSHAKE_TIMEOUT.saturating_mul(2 * HANDSHAKE_ATTEMPTS as u32))
+    .saturating_add(replies(4, REPLY_TIMEOUT))
+    .saturating_add(replies(1, ERASE_TIMEOUT))
+    .saturating_add(replies(MAX_WRITE_BLOCKS, WRITE_TIMEOUT))
+    .saturating_add(replies(3, FINISH_TIMEOUT))
+    .saturating_add(replies(1, REPLY_TIMEOUT))
+    .saturating_add(RUN_SETTLE);
 
 const STOPPED_UNEXPECTEDLY: &str = "The update stopped unexpectedly.";
 
@@ -425,6 +444,7 @@ struct Inner {
     library: FirmwareLibrary,
     state: watch::Sender<FirmwareUpdateState>,
     lock: Arc<Mutex<()>>,
+    shutting_down: AtomicBool,
 }
 
 impl Inner {
@@ -640,6 +660,7 @@ impl FirmwareUpdater {
                 library,
                 state,
                 lock: Arc::new(Mutex::new(())),
+                shutting_down: AtomicBool::new(false),
             }),
         }
     }
@@ -690,6 +711,10 @@ impl FirmwareUpdater {
         let Ok(permit) = Arc::clone(&self.inner.lock).try_lock_owned() else {
             return Err(update_error(FirmwareUpdateReason::Busy).into());
         };
+        // Read under the lock `shut_down` takes next, so no update slips past it.
+        if self.inner.shutting_down.load(Ordering::Relaxed) {
+            return Err(update_error(FirmwareUpdateReason::ShuttingDown).into());
+        }
         let inner = Arc::clone(&self.inner);
         let job = tokio::spawn(async move {
             let _permit = permit;
@@ -705,6 +730,20 @@ impl FirmwareUpdater {
             Ok(Err(FlashError::Update(error))) => Err(error.into()),
             Ok(Err(FlashError::Defect)) | Err(_) => Err(UpdateError::Defect),
         }
+    }
+
+    /// Refuses every update from now on and waits for the running one, [`UPDATE_TIMEOUT`] at
+    /// most, so the server never closes the port under a flash. False when it is still running.
+    #[tracing::instrument(name = "FirmwareUpdater.shutDown", skip_all)]
+    pub async fn shut_down(&self) -> bool {
+        self.inner.shutting_down.store(true, Ordering::Relaxed);
+        if self.inner.lock.try_lock().is_ok() {
+            return true;
+        }
+        tracing::info!("Waiting for the firmware update to finish");
+        tokio::time::timeout(UPDATE_TIMEOUT, self.inner.lock.lock())
+            .await
+            .is_ok()
     }
 }
 
@@ -1051,6 +1090,41 @@ mod tests {
             .await
             .unwrap();
         update.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shutting_down_waits_for_the_running_update_and_refuses_the_next() {
+        let fixture = fixture().await;
+        let update = tokio::spawn({
+            let updater = fixture.updater.clone();
+            async move { updater.update(simulated_update()).await }
+        });
+        fixture
+            .updater
+            .state()
+            .wait_for(|state| matches!(state, FirmwareUpdateState::Running { .. }))
+            .await
+            .unwrap();
+
+        assert!(fixture.updater.shut_down().await);
+        assert!(matches!(
+            fixture.state(),
+            FirmwareUpdateState::Succeeded { .. }
+        ));
+        update.await.unwrap().unwrap();
+        let refused = fixture
+            .updater
+            .update(simulated_update())
+            .await
+            .unwrap_err();
+        assert_eq!(update_reason(refused), FirmwareUpdateReason::ShuttingDown);
+        assert!(fixture.updater.shut_down().await);
+    }
+
+    #[test]
+    fn allows_a_full_flash_about_ten_minutes() {
+        assert_eq!(MAX_WRITE_BLOCKS, 114);
+        assert_eq!(UPDATE_TIMEOUT, Duration::from_millis(605_430));
     }
 
     #[tokio::test(start_paused = true)]

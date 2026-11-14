@@ -93,6 +93,7 @@ export class FirmwareUpdateError extends Schema.TaggedError<FirmwareUpdateError>
   {
     reason: Schema.Literals([
       "busy",
+      "shuttingDown",
       "wrongKey",
       "noKey",
       "noBootloader",
@@ -108,6 +109,8 @@ export class FirmwareUpdateError extends Schema.TaggedError<FirmwareUpdateError>
     switch (this.reason) {
       case "busy":
         return "A firmware update is already running.";
+      case "shuttingDown":
+        return "The app is closing, so no update can start.";
       case "wrongKey":
         return "That isn't the MK2 bootloader's wire key.";
       case "noKey":

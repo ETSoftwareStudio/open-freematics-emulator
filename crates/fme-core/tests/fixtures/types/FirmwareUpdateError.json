@@ -5,6 +5,10 @@
   },
   {
     "_tag": "FirmwareUpdateError",
+    "reason": "shuttingDown"
+  },
+  {
+    "_tag": "FirmwareUpdateError",
     "reason": "wrongKey"
   },
   {

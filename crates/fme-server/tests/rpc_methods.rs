@@ -16,6 +16,7 @@ use fme_server::device::device_link::{
     ChunkSender, Chunks, DeviceLink, DeviceLinkError, LinkFuture, LinkOperation, latin1,
 };
 use fme_server::device::serial_ports::{Platform, PortSystem, SerialPorts};
+use fme_server::firmware::firmware_updater::FirmwareUpdater;
 use fme_server::firmware::vendor_package::ReqwestClient;
 use fme_server::ws::{self, Services};
 use serde_json::{Value, json};
@@ -541,6 +542,7 @@ fn handshake_traffic() -> Vec<Value> {
 
 struct Fixture {
     client: Client,
+    updater: FirmwareUpdater,
     data_dir: tempfile::TempDir,
     resets: mpsc::UnboundedReceiver<()>,
 }
@@ -554,6 +556,7 @@ impl Fixture {
         let services = Services::with_serial_ports(data_dir.path(), http, ports).await;
         Self {
             client: Client::new(&services, data_dir.path()),
+            updater: services.firmware.updater.clone(),
             data_dir,
             resets,
         }
@@ -1064,8 +1067,8 @@ async fn stalled_adapter(fixture: &mut Fixture) {
     );
 }
 
-/// Image checks, update errors, vendor imports, a simulated update that outlives its caller, and
-/// the emulator after it.
+/// Image checks, update errors, vendor imports, a simulated update that outlives its caller, the
+/// emulator after it, and the update a stopping server refuses.
 async fn firmware(fixture: &mut Fixture, mut state: Value) {
     let missing_port = fixture.port(MISSING_PORT);
     let data_dir = fixture.data_dir.path().to_path_buf();
@@ -1194,6 +1197,7 @@ async fn firmware(fixture: &mut Fixture, mut state: Value) {
         }))
     );
     c.interrupt(flashing).await;
+    let update = json!({ "target": simulated, "image": file, "wireKey": TEST_KEY });
     let finished = c
         .chunk_where(progress, |state| {
             state["_tag"] == "succeeded" || state["_tag"] == "failed"
@@ -1230,5 +1234,11 @@ async fn firmware(fixture: &mut Fixture, mut state: Value) {
     assert_eq!(
         serde_json::from_str::<Value>(&presets).unwrap(),
         json!({ "version": 1, "presets": [] })
+    );
+
+    assert!(fixture.updater.shut_down().await);
+    assert_eq!(
+        fixture.client.call("firmware.update", update).await,
+        update_error("shuttingDown")
     );
 }

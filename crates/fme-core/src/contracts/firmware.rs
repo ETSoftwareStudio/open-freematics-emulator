@@ -164,6 +164,7 @@ tagged_struct! {
 string_enum! {
     pub enum FirmwareUpdateReason {
         Busy => "busy",
+        ShuttingDown => "shuttingDown",
         WrongKey => "wrongKey",
         NoKey => "noKey",
         NoBootloader => "noBootloader",
@@ -179,6 +180,7 @@ impl FirmwareUpdateReason {
     fn message(self) -> &'static str {
         match self {
             Self::Busy => "A firmware update is already running.",
+            Self::ShuttingDown => "The app is closing, so no update can start.",
             Self::WrongKey => "That isn't the MK2 bootloader's wire key.",
             Self::NoKey => "No wire key is available. Import one from the vendor tool first.",
             Self::NoBootloader => "The bootloader didn't answer.",
