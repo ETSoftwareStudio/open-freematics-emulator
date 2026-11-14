@@ -231,6 +231,8 @@ impl Inner {
 
     #[tracing::instrument(name = "EmulatorSession.onLinkLost", skip_all)]
     async fn on_link_lost(&self, id: u64) {
+        // Under the lock no connect runs, so the state changed below is this connection's.
+        let _permit = self.lock.lock().await;
         let current = {
             let mut active = self.active();
             match &*active {
@@ -1075,5 +1077,35 @@ mod tests {
             );
             assert_eq!(system.events(), ["open", "close"], "{step}");
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn leaves_a_newer_connection_alone_when_an_older_link_is_lost() {
+        let (session, system) = on_a_fake_port();
+        session.connect(port()).await.unwrap();
+        let held = system.hold_close();
+        system.fail_read();
+        held.entered.await.unwrap();
+        // The lost connection is still closing when the user connects to another device.
+        let old_one_closes = async {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            held.release.send(()).unwrap();
+        };
+        let (connected, ()) =
+            tokio::join!(session.connect(ConnectTarget::Simulated), old_one_closes);
+        connected.unwrap();
+        session.send_raw("ATGET VIN").await.unwrap();
+        let state = session.state().borrow().clone();
+        assert!(
+            matches!(
+                state.connection,
+                Connection::Connected {
+                    target: ConnectTarget::Simulated,
+                    ..
+                }
+            ),
+            "{:?}",
+            state.connection
+        );
     }
 }
