@@ -25,6 +25,8 @@ nix = { version = "0.30", features = ["fs", "term"] }
 percent-encoding = "2"
 # Only the pinned vendor URL is fetched; rustls with the platform's roots, no proxies or HTTP/2.
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+# Only for the safe TIOCEXCL call on serial ports.
+rustix = { version = "1", default-features = false, features = ["std", "termios"] }
 ryu-js = "1"
 serialport = "4"
 sha2 = "0.10"

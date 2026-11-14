@@ -2,7 +2,7 @@
 //! device in step with it. Values are the last ones the device acknowledged; the firmware can't
 //! report most of them back.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -194,6 +194,8 @@ struct Inner {
     state: watch::Sender<EmulatorState>,
     active: Mutex<Option<ActiveConnection>>,
     connection_ids: AtomicU64,
+    // Set while a firmware update owns the device.
+    updating: AtomicBool,
     // Connect, disconnect and setters run one at a time so a connect never races a setter.
     lock: tokio::sync::Mutex<()>,
 }
@@ -258,6 +260,18 @@ impl Drop for Abandoned<'_> {
     }
 }
 
+/// Keeps the session off the device for a firmware update. Dropping it allows connects again.
+#[derive(Debug)]
+pub struct UpdateHold {
+    inner: Arc<Inner>,
+}
+
+impl Drop for UpdateHold {
+    fn drop(&mut self) {
+        self.inner.updating.store(false, Ordering::Relaxed);
+    }
+}
+
 /// Cheap to clone; clones share one session.
 #[derive(Debug, Clone)]
 pub struct EmulatorSession {
@@ -275,6 +289,7 @@ impl EmulatorSession {
                 state,
                 active: Mutex::new(None),
                 connection_ids: AtomicU64::new(0),
+                updating: AtomicBool::new(false),
                 lock: tokio::sync::Mutex::new(()),
             }),
         }
@@ -296,6 +311,12 @@ impl EmulatorSession {
     )]
     pub async fn connect(&self, target: ConnectTarget) -> Result<(), EmulatorConnectError> {
         let _permit = self.inner.lock.lock().await;
+        if self.inner.updating.load(Ordering::Relaxed) {
+            return Err(EmulatorConnectError {
+                target,
+                reason: EmulatorConnectReason::UpdateRunning,
+            });
+        }
         let mut abandoned = Abandoned {
             inner: &self.inner,
             armed: true,
@@ -319,6 +340,18 @@ impl EmulatorSession {
             });
         }
         result
+    }
+
+    /// Disconnects, and refuses every connect until the hold is dropped, so nothing else opens
+    /// the port a firmware update writes to.
+    #[tracing::instrument(name = "EmulatorSession.holdForUpdate", skip_all)]
+    pub async fn hold_for_update(&self) -> UpdateHold {
+        self.inner.updating.store(true, Ordering::Relaxed);
+        let hold = UpdateHold {
+            inner: Arc::clone(&self.inner),
+        };
+        self.disconnect().await;
+        hold
     }
 
     async fn open_link(

@@ -71,9 +71,10 @@ errors implement `RpcError` in `fme-core` with `typed_errors!`. Wire rules:
 MIME types) behind the loopback same-origin guard. The `fme` binary takes `--host`, `--port`,
 `--data-dir`, `--web-root`, `--app-origin` and `--dev` (no web app; Vite serves it).
 `server::Server` binds first (port 0 picks a free one) and serves until a shutdown future
-resolves, then closes the device links and the macOS Bluetooth ports `SerialPorts` holds open
-(macOS serves those only until their first close); the Tauri app (`apps/desktop-tauri`) runs it
-in-process that way.
+resolves. It then waits for a running firmware update (`FirmwareUpdater::shut_down`, which also
+refuses new ones; `SHUTDOWN_TIMEOUT` bounds the wait), and closes the device links and the macOS
+Bluetooth ports `SerialPorts` holds open (macOS serves those only until their first close). The
+Tauri app (`apps/desktop-tauri`) runs it in-process that way and waits as long when it quits.
 
 ## Checking
 

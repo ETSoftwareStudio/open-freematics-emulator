@@ -173,7 +173,7 @@ export class EmulatorConnectError extends Schema.TaggedError<EmulatorConnectErro
   "EmulatorConnectError",
   {
     target: ConnectTarget,
-    reason: Schema.Literals(["open-failed", "no-handshake", "setup-failed"]),
+    reason: Schema.Literals(["open-failed", "no-handshake", "setup-failed", "update-running"]),
   },
 ) {
   override get message(): string {
@@ -184,6 +184,8 @@ export class EmulatorConnectError extends Schema.TaggedError<EmulatorConnectErro
         return "The device did not answer like a Freematics emulator.";
       case "setup-failed":
         return "The emulator rejected its initial configuration.";
+      case "update-running":
+        return "A firmware update is running. Connect when it finishes.";
     }
   }
 }
