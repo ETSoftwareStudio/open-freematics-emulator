@@ -63,7 +63,8 @@ errors implement `RpcError` in `fme-core` with `typed_errors!`. Wire rules:
 - A stream sends one `Chunk`, then waits for the client's `Ack`. `changes` streams a `watch`:
   the current value, then the latest after each change, so unacked changes coalesce.
 - `Interrupt` drops the request's future and answers with an interrupt `Exit`; a disconnect drops
-  them all. Device exchanges run in actors, so none stops halfway.
+  them all. Device exchanges run in actors, so none stops halfway. A session setter runs its
+  commands and its state update in its own task, so it finishes too.
 - Effect's quirks are kept: a reused running id, or a request after `Eof` while others run,
   closes the socket (1001); a `null` message closes it (1011).
 
