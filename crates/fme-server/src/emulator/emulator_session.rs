@@ -105,8 +105,9 @@ struct Pushed {
     unsent: Vec<UnsentEdit>,
 }
 
-/// Finds which DTC modes the firmware takes by setting a throwaway code in each. Runs right
-/// after ATZ, and the codes it leaves are cleared before the real state is pushed.
+/// Finds which DTC modes the firmware takes by setting a throwaway code in each, then clears
+/// every code before the real state is pushed: the probe's, and any the device kept from an
+/// earlier run, which ATZ is not known to clear.
 #[tracing::instrument(name = "EmulatorSession.probeDtcModes", skip_all)]
 async fn probe_dtc_modes(client: &AtClient) -> Result<Vec<DtcMode>, EmulatorCommandError> {
     let probe: Vec<DtcCode> = DtcCode::new(PROBE_DTC).into_iter().collect();
@@ -118,9 +119,7 @@ async fn probe_dtc_modes(client: &AtClient) -> Result<Vec<DtcMode>, EmulatorComm
             Err(error) => return Err(error),
         }
     }
-    if accepted.len() > 1 {
-        client.command(at::CLEAR_DTCS).await?;
-    }
+    client.command(at::CLEAR_DTCS).await?;
     Ok(accepted)
 }
 
@@ -719,6 +718,8 @@ mod tests {
     async fn pushes_the_stored_state_on_connect_and_reports_the_device() {
         let fixture = on(SimulatedVersion::V1_2);
         let session = &fixture.session;
+        // Codes from an earlier run: ATZ resets the PIDs, not the codes.
+        fixture.simulated.lock().firmware.stored_dtcs = vec!["P0300".to_owned()];
         session.set_pid(&pid("010C"), 3000.0).await.unwrap();
         session.set_ignition(false).await.unwrap();
         session.connect(ConnectTarget::Simulated).await.unwrap();
