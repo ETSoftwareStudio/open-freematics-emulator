@@ -59,23 +59,39 @@ pub fn decode_dtc(high: u8, low: u8) -> String {
 }
 
 /// Codes from a Mode 03/07/0A reply. CAN replies carry a count byte after the service byte
-/// (`43 02 01 05 03 00`); older buses send three code slots per line, zero-padded.
+/// (`43 02 01 05 03 00`) and continue over ISO-TP frames past two codes (`00A`,
+/// `0: 43 04 01 05 03 00`, `1: 04 20 01 71 00 00 00`); only the counted codes are read, the rest
+/// is padding. Older buses send three code slots per line, zero-padded.
 pub fn parse_dtc_reply<S: AsRef<str>>(lines: &[S], service: u8, is_can: bool) -> Vec<String> {
     let reply_byte = u16::from(service) + 0x40;
-    let mut codes = Vec::new();
+    let mut data = Vec::new();
+    let mut missing = 0;
     for line in lines {
         let bytes = hex_tokens(line.as_ref());
-        if bytes.first().map(|b| u16::from(*b)) != Some(reply_byte) {
-            continue;
-        }
-        let data = bytes.get(if is_can { 2 } else { 1 }..).unwrap_or_default();
-        for &[high, low] in data.as_chunks::<2>().0 {
-            if high != 0 || low != 0 {
-                codes.push(decode_dtc(high, low));
-            }
-        }
+        let frame = match bytes.as_slice() {
+            frame if missing > 0 => frame,
+            [first, rest @ ..] if u16::from(*first) == reply_byte => match rest {
+                [count, slots @ ..] if is_can => {
+                    missing = usize::from(*count) * 2;
+                    slots
+                }
+                _ => {
+                    missing = rest.len() / 2 * 2;
+                    rest
+                }
+            },
+            _ => continue,
+        };
+        let taken = &frame[..frame.len().min(missing)];
+        missing -= taken.len();
+        data.extend_from_slice(taken);
     }
-    codes
+    data.as_chunks::<2>()
+        .0
+        .iter()
+        .filter(|&&[high, low]| high != 0 || low != 0)
+        .map(|&[high, low]| decode_dtc(high, low))
+        .collect()
 }
 
 fn is_iso_tp_length(line: &str) -> bool {
@@ -156,6 +172,39 @@ mod tests {
             ["P0105", "P0300"]
         );
         assert!(parse_dtc_reply(&["43 00"], 0x03, true).is_empty());
+    }
+
+    #[test]
+    fn reads_dtcs_from_multi_frame_can_replies() {
+        type Case<'a> = (&'a [&'a str], &'a [&'a str]);
+        let cases: [Case; 4] = [
+            (
+                &["008", "0: 43 03 01 05 03 00", "1: 04 20 00 00 00 00 00"],
+                &["P0105", "P0300", "P0420"],
+            ),
+            (
+                &["00A", "0: 43 04 01 05 03 00", "1: 04 20 01 71 00 00 00"],
+                &["P0105", "P0300", "P0420", "P0171"],
+            ),
+            (
+                &[
+                    "010",
+                    "0: 43 07 01 05 03 00",
+                    "1: 04 20 01 71 43 00 C1",
+                    "2: 00 81 23 AA AA AA AA",
+                ],
+                &[
+                    "P0105", "P0300", "P0420", "P0171", "C0300", "U0100", "B0123",
+                ],
+            ),
+            (
+                &["43 01 01 05 AA AA AA", "43 01 03 00 AA AA AA"],
+                &["P0105", "P0300"],
+            ),
+        ];
+        for (lines, codes) in cases {
+            assert_eq!(parse_dtc_reply(lines, 0x03, true), codes, "{lines:?}");
+        }
     }
 
     #[test]

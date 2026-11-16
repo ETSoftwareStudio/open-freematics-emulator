@@ -318,8 +318,21 @@ impl Inner {
         }
     }
 
+    /// Makes the connection the active one, unless its link is lost already. One lock covers the
+    /// check and the store, so `on_link_lost` finds every connection that loses its link later.
+    fn keep(&self, connection: ActiveConnection) -> Result<(), ActiveConnection> {
+        let mut active = self.active();
+        if connection.client.link_lost() {
+            return Err(connection);
+        }
+        *active = Some(connection);
+        Ok(())
+    }
+
     #[tracing::instrument(name = "ObdReader.onLinkLost", skip_all)]
     async fn on_link_lost(&self, id: u64) {
+        // Under the lock no connect runs, so the state changed below is this connection's.
+        let _permit = self.lock.lock().await;
         let current = {
             let mut active = self.active();
             match &*active {
@@ -476,6 +489,8 @@ impl ObdReader {
         let Some(identity) = reset.ok().and_then(|lines| identify(&lines)) else {
             let reason = if silent_means_stale && !client.received() {
                 ReaderConnectReason::BluetoothStale
+            } else if client.link_lost() {
+                ReaderConnectReason::LinkLost
             } else {
                 ReaderConnectReason::NoAdapter
             };
@@ -500,7 +515,10 @@ impl ObdReader {
         let voltage = read_voltage(&client).await;
 
         let poller = tokio::spawn(poll(Arc::clone(&self.inner.state), client.clone()));
-        *self.inner.active() = Some(ActiveConnection { id, client, poller });
+        if let Err(lost) = self.inner.keep(ActiveConnection { id, client, poller }) {
+            Inner::close(lost).await;
+            return Err(fail(ReaderConnectReason::LinkLost));
+        }
         self.inner.update(|state| {
             state.vehicle_responding = searched;
             state.voltage = voltage;
@@ -592,7 +610,7 @@ mod tests {
     use super::*;
     use crate::device::serial_ports::Platform;
     use crate::device::serial_ports::fake::FakeSystem;
-    use crate::device::simulated_device::SimulatedVersion;
+    use crate::device::simulated_device::{SimulatedElm327, SimulatedFirmware, SimulatedVersion};
     use crate::emulator::emulator_session::EmulatorSession;
 
     struct Fixture {
@@ -713,6 +731,20 @@ mod tests {
         );
         assert!(state.dtcs_at.is_some());
         assert_eq!(state.vin.as_deref(), Some("1HGCD5654VA061985"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reads_every_stored_code_from_a_multi_frame_reply() {
+        let fixture = connected().await;
+        let stored = ["P0105", "P0300", "P0420", "P0171", "C0300"];
+        fixture
+            .session
+            .set_dtcs(DtcMode::Stored, codes(&stored))
+            .await
+            .unwrap();
+        fixture.reader.read_dtcs().await.unwrap();
+        let state = fixture.reader.state().borrow().clone();
+        assert_eq!(state.dtcs.as_deref(), Some(&stored.map(str::to_owned)[..]));
     }
 
     #[tokio::test(start_paused = true)]
@@ -911,6 +943,70 @@ mod tests {
             ReaderConnectReason::NoAdapter
         );
         assert_eq!(system.events(), ["open"]);
+    }
+
+    /// A reader on a fake serial port that the simulated adapter answers.
+    fn on_a_fake_port() -> (ObdReader, FakeSystem) {
+        let vehicle = Mutex::new(SimulatedFirmware::new(SimulatedVersion::V1_2));
+        let system = FakeSystem::new(false, move |written| {
+            let mut vehicle = vehicle.lock().unwrap();
+            Some(SimulatedElm327::handle(
+                &mut vehicle,
+                written.trim_end_matches('\r'),
+            ))
+        });
+        (bluetooth_reader(&system), system)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fails_the_connect_when_the_link_is_lost_at_any_step() {
+        for step in ["ATZ\r", "ATSP0\r", "0100\r", "ATRV\r"] {
+            let (reader, system) = on_a_fake_port();
+            system.fail_read_on(step);
+            let started = Instant::now();
+            assert_eq!(
+                connect_failure(&reader).await,
+                ReaderConnectReason::LinkLost,
+                "{step}"
+            );
+            assert_eq!(started.elapsed(), Duration::ZERO, "{step}");
+            let state = reader.state().borrow().clone();
+            assert!(
+                matches!(state.connection, ReaderConnection::Failed { .. }),
+                "{step}: {:?}",
+                state.connection
+            );
+            assert_eq!(system.events(), ["open", "close"], "{step}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn leaves_a_newer_connection_alone_when_an_older_link_is_lost() {
+        let (reader, system) = on_a_fake_port();
+        reader.connect(adapter()).await.unwrap();
+        let held = system.hold_close();
+        system.fail_read();
+        held.entered.await.unwrap();
+        // The lost connection is still closing when the user connects to another adapter.
+        let old_one_closes = async {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            held.release.send(()).unwrap();
+        };
+        let (connected, ()) = tokio::join!(reader.connect(ReaderTarget::Simulated), old_one_closes);
+        connected.unwrap();
+        reader.read_once().await.unwrap();
+        let state = reader.state().borrow().clone();
+        assert!(
+            matches!(
+                state.connection,
+                ReaderConnection::Connected {
+                    target: ReaderTarget::Simulated,
+                    ..
+                }
+            ),
+            "{:?}",
+            state.connection
+        );
     }
 
     #[test]

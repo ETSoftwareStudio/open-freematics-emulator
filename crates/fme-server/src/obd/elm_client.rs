@@ -81,6 +81,7 @@ enum Message {
 pub struct ElmClient {
     requests: mpsc::UnboundedSender<Message>,
     received: Arc<AtomicBool>,
+    link_lost: Arc<AtomicBool>,
 }
 
 fn lines_of(text: &str) -> Vec<String> {
@@ -102,9 +103,11 @@ impl ElmClient {
     pub fn spawn(link: Box<dyn DeviceLink>, options: ElmClientOptions) -> Self {
         let (requests, inbox) = mpsc::unbounded_channel();
         let received = Arc::new(AtomicBool::new(false));
+        let link_lost = Arc::new(AtomicBool::new(false));
         let actor = Actor {
             link,
             received: Arc::clone(&received),
+            link_lost: Arc::clone(&link_lost),
             buffer: String::new(),
             replies: VecDeque::new(),
             log_replies: true,
@@ -112,7 +115,16 @@ impl ElmClient {
             on_link_lost: Some(options.on_link_lost),
         };
         tokio::spawn(actor.run(inbox));
-        Self { requests, received }
+        Self {
+            requests,
+            received,
+            link_lost,
+        }
+    }
+
+    /// Whether the link failed or closed underneath the client. Set before `on_link_lost` runs.
+    pub fn link_lost(&self) -> bool {
+        self.link_lost.load(Ordering::Relaxed)
     }
 
     /// Whether any byte at all has arrived since the client started.
@@ -156,6 +168,7 @@ impl ElmClient {
 struct Actor {
     link: Box<dyn DeviceLink>,
     received: Arc<AtomicBool>,
+    link_lost: Arc<AtomicBool>,
     buffer: String,
     replies: VecDeque<Vec<String>>,
     // Replies are logged as they arrive, so one that comes after its request timed out still shows.
@@ -214,6 +227,7 @@ impl Actor {
 
     fn lose(&mut self, cause: Option<DeviceLinkError>) {
         if let Some(on_link_lost) = self.on_link_lost.take() {
+            self.link_lost.store(true, Ordering::Relaxed);
             on_link_lost(cause);
         }
     }
@@ -257,16 +271,21 @@ impl Actor {
             if let Some(lines) = self.replies.pop_front() {
                 return Ok(lines);
             }
-            let lost = self.on_link_lost.is_none();
-            tokio::select! {
-                chunk = self.link.next_chunk(), if !lost => self.receive(chunk),
-                () = tokio::time::sleep_until(deadline) => {
-                    let partial = lines_of(&self.buffer);
-                    self.buffer.clear();
-                    self.log_reply(&partial);
-                    return Err(error(command, ReaderCommandReason::Timeout));
+            let reason = if self.on_link_lost.is_none() {
+                ReaderCommandReason::Link
+            } else {
+                tokio::select! {
+                    chunk = self.link.next_chunk() => {
+                        self.receive(chunk);
+                        continue;
+                    }
+                    () = tokio::time::sleep_until(deadline) => ReaderCommandReason::Timeout,
                 }
-            }
+            };
+            let partial = lines_of(&self.buffer);
+            self.buffer.clear();
+            self.log_reply(&partial);
+            return Err(error(command, reason));
         }
     }
 }
@@ -294,6 +313,24 @@ mod tests {
         let second = client.request("ATRV", RequestOptions::default()).await;
         assert_eq!(second.unwrap(), ["12.6V"]);
     }
+    #[tokio::test(start_paused = true)]
+    async fn fails_a_request_at_once_when_the_link_is_lost() {
+        let (link, mut script) = scripted(&[]);
+        let client = ElmClient::spawn(link, quiet());
+        let started = Instant::now();
+        let pending = tokio::spawn({
+            let client = client.clone();
+            async move { client.request("0100", RequestOptions::SEARCH).await }
+        });
+        assert_eq!(script.written.recv().await.unwrap(), "0100\r");
+        drop(script.incoming);
+        let cut_off = pending.await.unwrap().unwrap_err();
+        assert_eq!(cut_off.reason, ReaderCommandReason::Link);
+        let after = client.request("ATRV", RequestOptions::default()).await;
+        assert_eq!(after.unwrap_err().reason, ReaderCommandReason::Link);
+        assert_eq!(started.elapsed(), Duration::ZERO);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn logs_a_reply_that_timed_out_as_it_arrives_but_never_a_quiet_one() {
         let (link, script) = scripted(&[Some("SEARCHING..."), Some("12.6V\r\r>")]);

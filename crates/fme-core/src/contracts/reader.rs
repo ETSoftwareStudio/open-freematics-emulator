@@ -173,6 +173,7 @@ string_enum! {
         OpenFailed => "open-failed",
         NoAdapter => "no-adapter",
         BluetoothStale => "bluetooth-stale",
+        LinkLost => "link-lost",
     }
 }
 
@@ -184,6 +185,7 @@ impl ReaderConnectReason {
             Self::BluetoothStale => {
                 "The Bluetooth adapter didn't answer. macOS stops serving a Bluetooth serial port after it's closed once. Forget the adapter in System Settings → Bluetooth, pair it again, then connect."
             }
+            Self::LinkLost => "The connection to the OBD-II adapter dropped while connecting.",
         }
     }
 }

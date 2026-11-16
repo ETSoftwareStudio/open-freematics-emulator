@@ -38,24 +38,35 @@ export const decodeDtc = (high: number, low: number) =>
 
 /**
  * Codes from a Mode 03/07/0A reply. CAN replies carry a count byte after the service byte
- * (`43 02 01 05 03 00`); older buses send three code slots per line, zero-padded.
+ * (`43 02 01 05 03 00`) and continue over ISO-TP frames past two codes (`00A`,
+ * `0: 43 04 01 05 03 00`, `1: 04 20 01 71 00 00 00`); only the counted codes are read, the rest
+ * is padding. Older buses send three code slots per line, zero-padded.
  */
 export const parseDtcReply = (
   lines: ReadonlyArray<string>,
   service: number,
   isCan: boolean,
 ): ReadonlyArray<string> => {
-  const codes: Array<string> = [];
   const replyByte = service + 0x40;
+  const data: Array<number> = [];
+  let missing = 0;
   for (const line of lines) {
-    const bytes = hexTokens(line);
-    if (bytes[0] !== replyByte) continue;
-    const data = bytes.slice(isCan ? 2 : 1);
-    for (let i = 0; i + 1 < data.length; i += 2) {
-      const high = data[i]!;
-      const low = data[i + 1]!;
-      if (high !== 0 || low !== 0) codes.push(decodeDtc(high, low));
+    let frame = hexTokens(line);
+    if (missing === 0) {
+      if (frame[0] !== replyByte) continue;
+      const count = isCan ? frame[1] : undefined;
+      frame = frame.slice(count === undefined ? 1 : 2);
+      missing = count === undefined ? frame.length - (frame.length % 2) : count * 2;
     }
+    const taken = frame.slice(0, missing);
+    missing -= taken.length;
+    data.push(...taken);
+  }
+  const codes: Array<string> = [];
+  for (let i = 0; i + 1 < data.length; i += 2) {
+    const high = data[i]!;
+    const low = data[i + 1]!;
+    if (high !== 0 || low !== 0) codes.push(decodeDtc(high, low));
   }
   return codes;
 };

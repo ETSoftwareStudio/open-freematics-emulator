@@ -25,5 +25,14 @@
       "port": 35000
     },
     "reason": "bluetooth-stale"
+  },
+  {
+    "_tag": "ReaderConnectError",
+    "target": {
+      "_tag": "tcp",
+      "host": "192.168.0.10",
+      "port": 35000
+    },
+    "reason": "link-lost"
   }
 ]

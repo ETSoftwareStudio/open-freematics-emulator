@@ -453,6 +453,8 @@ impl DeviceLink for PortLink {
 pub(crate) mod fake {
     use std::sync::{Arc, Mutex};
 
+    use tokio::sync::oneshot;
+
     use super::{
         ChunkSender, Chunks, DeviceLink, DeviceLinkError, LinkFuture, LinkOperation, PortSystem,
         io, latin1,
@@ -464,8 +466,20 @@ pub(crate) mod fake {
         bluetooth: bool,
         answer: Answer,
         fail_writes: bool,
+        fail_read_on: Option<&'static str>,
+        held_close: Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>,
         events: Vec<&'static str>,
         incoming: Option<ChunkSender>,
+    }
+
+    /// The next close of a port, stopped halfway until the test releases it.
+    pub(crate) struct HeldClose {
+        pub(crate) entered: oneshot::Receiver<()>,
+        pub(crate) release: oneshot::Sender<()>,
+    }
+
+    fn read_error() -> DeviceLinkError {
+        DeviceLinkError::new(LinkOperation::Read, io::Error::other("gone"))
     }
 
     /// A port system the test drives. Each open makes a new link that answers what is written
@@ -488,6 +502,8 @@ pub(crate) mod fake {
                 bluetooth,
                 answer: Box::new(answer),
                 fail_writes: false,
+                fail_read_on: None,
+                held_close: None,
                 events: Vec::new(),
                 incoming: None,
             })))
@@ -511,6 +527,23 @@ pub(crate) mod fake {
 
         pub(crate) fn fail_writes(&self, fail: bool) {
             self.state().fail_writes = fail;
+        }
+
+        /// Makes the link fail its next read, without an answer, once this text is written.
+        pub(crate) fn fail_read_on(&self, written: &'static str) {
+            self.state().fail_read_on = Some(written);
+        }
+
+        /// Makes the port opened last fail its next read.
+        pub(crate) fn fail_read(&self) {
+            self.arrive(Err(read_error()));
+        }
+
+        pub(crate) fn hold_close(&self) -> HeldClose {
+            let (entered_tx, entered) = oneshot::channel();
+            let (release, release_rx) = oneshot::channel();
+            self.state().held_close = Some((entered_tx, release_rx));
+            HeldClose { entered, release }
         }
 
         /// Feeds the port opened last as if the adapter sent it.
@@ -560,8 +593,14 @@ pub(crate) mod fake {
                     io::Error::other("gone"),
                 ))
             } else {
-                if let Some(reply) = (state.answer)(&latin1(data)) {
-                    self.sender.send(Ok(reply)).unwrap();
+                let written = latin1(data);
+                let chunk = if state.fail_read_on == Some(written.as_str()) {
+                    Some(Err(read_error()))
+                } else {
+                    (state.answer)(&written).map(Ok)
+                };
+                if let Some(chunk) = chunk {
+                    self.sender.send(chunk).unwrap();
                 }
                 Ok(())
             };
@@ -570,6 +609,17 @@ pub(crate) mod fake {
 
         fn next_chunk(&mut self) -> LinkFuture<'_, Option<Result<String, DeviceLinkError>>> {
             Box::pin(self.chunks.next())
+        }
+
+        fn close(self: Box<Self>) -> LinkFuture<'static, ()> {
+            let held = self.system.state().held_close.take();
+            Box::pin(async move {
+                if let Some((entered, release)) = held {
+                    entered.send(()).unwrap();
+                    release.await.unwrap();
+                }
+                drop(self);
+            })
         }
     }
 
